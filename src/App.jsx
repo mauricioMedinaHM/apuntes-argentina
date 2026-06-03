@@ -12,6 +12,13 @@ import {
   Heart,
   ArrowRight,
   BookMarked,
+  Terminal,
+  FolderOpen,
+  FileSearch,
+  Download,
+  List,
+  RotateCcw,
+  Cpu,
 } from 'lucide-react'
 import VaultAnimation from './VaultAnimation'
 import MockApuntes from './MockApuntes'
@@ -19,19 +26,45 @@ import SplashScreen, { shouldShowSplash } from './SplashScreen'
 import './App.css'
 
 const UNIVERSITIES = [
-  { id: 'uba',    name: 'UBA',   full: 'Universidad de Buenos Aires',        color: '#23355C', logo: '/logos/uba.svg'    },
-  { id: 'unc',    name: 'UNC',   full: 'Universidad Nacional de Córdoba',     color: '#2D5FA3', logo: '/logos/unc.png'    },
-  { id: 'unlp',   name: 'UNLP',  full: 'Universidad Nacional de La Plata',    color: '#003087', logo: '/logos/unlp.svg'   },
-  { id: 'utn',    name: 'UTN',   full: 'Universidad Tecnológica Nacional',    color: '#C8102E', logo: '/logos/utn.png'    },
-  { id: 'unr',    name: 'UNR',   full: 'Universidad Nacional de Rosario',     color: '#005B5E', logo: '/logos/unr.png'    },
-  { id: 'uncuyo', name: 'UNCu',  full: 'Universidad Nacional de Cuyo',        color: '#6B2D8B', logo: null               },
-  { id: 'unne',   name: 'UNNE',  full: 'Univ. Nacional del Nordeste',         color: '#1B6CA8', logo: '/logos/unne.jpg'  },
-  { id: 'unsa',   name: 'UNSA',  full: 'Univ. Nacional de Salta',             color: '#8B0000', logo: '/logos/unsa.png'  },
-  { id: 'unt',    name: 'UNT',   full: 'Univ. Nacional de Tucumán',           color: '#1A5C38', logo: null               },
-  { id: 'unmdp',  name: 'UNMdP', full: 'Univ. Nacional de Mar del Plata',     color: '#004B87', logo: '/logos/unmdp.jpg' },
-  { id: 'unsj',   name: 'UNSJ',  full: 'Univ. Nacional de San Juan',          color: '#5C3317', logo: null               },
-  { id: 'unlam',  name: 'UNLaM', full: 'Univ. Nacional de La Matanza',        color: '#2C6B2F', logo: '/logos/unlam.png' },
+  { id: 'uba',    name: 'UBA',   full: 'Universidad de Buenos Aires',        color: '#23355C', logo: '/logos/uba.svg'          },
+  { id: 'unc',    name: 'UNC',   full: 'Universidad Nacional de Córdoba',     color: '#2D5FA3', logo: '/logos/unc.png'           },
+  { id: 'unlp',   name: 'UNLP',  full: 'Universidad Nacional de La Plata',    color: '#003087', logo: '/logos/unlp.svg'          },
+  { id: 'utn',    name: 'UTN',   full: 'Universidad Tecnológica Nacional',    color: '#C8102E', logo: '/logos/utn.png'           },
+  { id: 'unr',    name: 'UNR',   full: 'Universidad Nacional de Rosario',     color: '#005B5E', logo: '/logos/unr.png'           },
+  { id: 'uncuyo', name: 'UNCu',  full: 'Universidad Nacional de Cuyo',        color: '#6B2D8B', logo: '/logos/uncuyo.png'        },
+  { id: 'unne',   name: 'UNNE',  full: 'Univ. Nacional del Nordeste',         color: '#1B6CA8', logo: '/logos/unne_new.png'      },
+  { id: 'unsa',   name: 'UNSA',  full: 'Univ. Nacional de Salta',             color: '#8B0000', logo: '/logos/unsa.png'          },
+  { id: 'unt',    name: 'UNT',   full: 'Univ. Nacional de Tucumán',           color: '#1A5C38', logo: '/logos/unt.png'           },
+  { id: 'unmdp',  name: 'UNMdP', full: 'Univ. Nacional de Mar del Plata',     color: '#004B87', logo: '/logos/unmdp.svg'         },
+  { id: 'unsj',   name: 'UNSJ',  full: 'Univ. Nacional de San Juan',          color: '#5C3317', logo: '/logos/unsj_footer.png'   },
+  { id: 'unlam',  name: 'UNLaM', full: 'Univ. Nacional de La Matanza',        color: '#2C6B2F', logo: '/logos/unlam.png'         },
 ]
+
+const MCP_TOOLS = [
+  { icon: MapPin,      fn: 'list_universities', desc: 'Devuelve las universidades disponibles en el vault.' },
+  { icon: BookOpen,    fn: 'list_careers',      desc: 'Lista las carreras disponibles para una universidad.' },
+  { icon: FolderOpen,  fn: 'list_subjects',     desc: 'Muestra las materias con apuntes cargados.' },
+  { icon: Download,    fn: 'load_subject',      desc: 'Descarga los PDFs, extrae el texto y lo guarda en sesión.' },
+  { icon: FileSearch,  fn: 'search_notes',      desc: 'Búsqueda TF-IDF sobre el contenido cargado en la sesión actual.' },
+  { icon: List,        fn: 'get_context',       desc: 'Muestra qué materias, archivos y chunks están en sesión.' },
+  { icon: RotateCcw,   fn: 'clear_context',     desc: 'Resetea el contexto de sesión para empezar de nuevo.' },
+]
+
+const MCP_CONFIG = `{
+  "mcpServers": {
+    "apuntes-argentina": {
+      "command": "node",
+      "args": ["/ruta/a/apuntes-argentina-mcp/dist/index.js"],
+      "env": {
+        "S3_BUCKET_NAME": "apuntes-argentina",
+        "S3_ACCESS_KEY_ID": "tu_key",
+        "S3_SECRET_ACCESS_KEY": "tu_secret",
+        "S3_ENDPOINT": "https://xxx.r2.cloudflarestorage.com",
+        "S3_REGION": "auto"
+      }
+    }
+  }
+}`
 
 const STEPS = [
   {
@@ -124,6 +157,8 @@ export default function App() {
     <div className="app">
       {/* ── HERO ── */}
       <header className="hero">
+        {/* Sol de Mayo watermark — image-led hero (Impeccable: Brand mode) */}
+        <div className="hero-sol-watermark" aria-hidden="true" />
         <nav className="nav">
           <div className="nav-logo">
             <BookMarked size={24} strokeWidth={2} />
@@ -143,27 +178,28 @@ export default function App() {
         <div className="hero-content">
           <motion.div
             className="hero-badge"
-            initial={{ opacity: 0, scale: 0.85 }}
-            animate={{ opacity: 1, scale: 1 }}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
           >
-            <Heart size={14} fill="currentColor" /> Proyecto sin fines de lucro · Open Source
+            Open Source · Sin fines de lucro
           </motion.div>
 
           <motion.h1
             className="hero-title"
-            initial={{ opacity: 0, y: 40 }}
+            initial={{ opacity: 0, y: 48 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.75, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
           >
-            Apuntes<span className="hero-title-accent">Argentina</span>
+            Apuntes
+            <span className="hero-title-accent">Argentina</span>
           </motion.h1>
 
           <motion.p
             className="hero-tagline"
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.7, delay: 0.28, ease: [0.22, 1, 0.36, 1] }}
           >
             Centralizá el conocimiento.<br />
             Compartí lo que sabés.<br />
@@ -331,6 +367,93 @@ export default function App() {
               <UniversityCard key={uni.id} uni={uni} delay={i * 0.05} />
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* ── MCP SERVER ── */}
+      <section className="section section-mcp">
+        <div className="container">
+          <FadeIn>
+            <span className="section-label section-label--light">Para desarrolladores</span>
+            <h2 className="section-title section-title--light">
+              Conectá tu IA a los apuntes
+            </h2>
+          </FadeIn>
+          <FadeIn delay={0.1}>
+            <p className="section-subtitle section-subtitle--light">
+              ApuntesArgentina incluye un servidor MCP open source que conecta Claude, Cursor
+              y ChatGPT directamente al vault. Cargás una materia, preguntás en lenguaje natural,
+              y tu IA responde con el contenido real de los apuntes — como un NotebookLM propio.
+            </p>
+          </FadeIn>
+
+          {/* Flow */}
+          <FadeIn delay={0.15}>
+            <div className="mcp-flow">
+              {['Claude · Cursor · ChatGPT', 'MCP Server', 'S3 / R2 Vault', 'Apuntes'].map((label, i) => (
+                <div key={label} className="mcp-flow-item">
+                  <div className="mcp-flow-node">{label}</div>
+                  {i < 3 && <ArrowRight size={16} className="mcp-flow-arrow" />}
+                </div>
+              ))}
+            </div>
+          </FadeIn>
+
+          {/* 7 tools */}
+          <div className="mcp-tools-grid">
+            {MCP_TOOLS.map(({ icon: Icon, fn, desc }, i) => (
+              <FadeIn key={fn} delay={0.05 * i}>
+                <div className="mcp-tool-card">
+                  <div className="mcp-tool-header">
+                    <Icon size={16} className="mcp-tool-icon" />
+                    <code className="mcp-tool-fn">{fn}()</code>
+                  </div>
+                  <p className="mcp-tool-desc">{desc}</p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+
+          {/* Config snippet */}
+          <FadeIn delay={0.2}>
+            <div className="mcp-config-wrap">
+              <div className="mcp-config-bar">
+                <div className="mcp-config-dots">
+                  <span /><span /><span />
+                </div>
+                <span className="mcp-config-filename">claude_desktop_config.json</span>
+                <span className="mcp-config-tag">Claude Desktop</span>
+              </div>
+              <pre className="mcp-config-code">{MCP_CONFIG}</pre>
+            </div>
+          </FadeIn>
+
+          <FadeIn delay={0.25}>
+            <div className="mcp-cta">
+              <motion.a
+                href="https://github.com/mauricioMedinaHM/apuntes-argentina"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                <Github size={18} />
+                Ver el servidor MCP
+              </motion.a>
+              <motion.a
+                href="https://github.com/mauricioMedinaHM/apuntes-argentina#contribuir-al-código"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-outline"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                <Terminal size={16} />
+                Cómo conectarlo
+              </motion.a>
+            </div>
+          </FadeIn>
         </div>
       </section>
 
