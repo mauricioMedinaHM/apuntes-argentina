@@ -1,3 +1,5 @@
+import UploadApunte from './UploadApunte'
+import { useUniversidades } from './hooks/useApuntes'
 import { motion, useInView, AnimatePresence } from 'motion/react'
 import { useRef, useState } from 'react'
 import {
@@ -142,6 +144,7 @@ function UniversityCard({ uni, delay }) {
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(shouldShowSplash)
+  const { universidades, loading } = useUniversidades()
 
   return (
     <>
@@ -153,6 +156,7 @@ export default function App() {
       </AnimatePresence>
 
     <div className="app">
+      <UploadApunte />  {/* ← agregá esta línea */}
       {/* ── HERO ── */}
       <header className="hero">
         {/* Sol de Mayo watermark — image-led hero (Impeccable: Brand mode) */}
