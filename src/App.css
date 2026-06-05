@@ -110,6 +110,10 @@
   gap: 10px;
 }
 
+/* Mobile: ocultar desktop, mostrar mobile */
+.nav-actions--mobile { display: none; }
+.nav-actions--desktop { display: flex; align-items: center; gap: 10px; }
+
 .nav-upload-btn {
   display: inline-flex;
   align-items: center;
@@ -132,14 +136,73 @@
   border-color: rgba(255,255,255,0.35);
 }
 
-/* Touch target: 44×44px minimum (Apple HIG) */
+/* ── Hamburger ── */
+.nav-hamburger {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  width: 44px;
+  height: 44px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 10px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.nav-hamburger-line {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: white;
+  border-radius: 2px;
+  transition: transform 0.22s, opacity 0.22s;
+  transform-origin: center;
+}
+
+.nav-hamburger-line--open:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.nav-hamburger-line--open:nth-child(2) { opacity: 0; transform: scaleX(0); }
+.nav-hamburger-line--open:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* ── Mobile drawer ── */
+.nav-drawer {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--color-primary);
+  border-top: 1px solid rgba(255,255,255,0.1);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  padding: 8px 20px 16px;
+  gap: 2px;
+}
+
+.nav-drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: white;
+  font-size: 1rem;
+  font-weight: 500;
+  padding: 14px 12px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+  transition: background 0.15s;
+  min-height: var(--touch-min);
+}
+.nav-drawer-item:hover { background: rgba(255,255,255,0.1); }
+
 @media (max-width: 768px) {
-  .nav-github {
-    min-height: var(--touch-min);
-    padding: 10px 12px;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.08);
-  }
+  .nav-actions--desktop { display: none; }
+  .nav-actions--mobile  { display: flex; align-items: center; gap: 8px; }
 }
 
 /* ── Hero ── */
@@ -1831,133 +1894,107 @@
 @media (max-width: 768px) {
 
   /* ── Sections ── */
-  .section        { padding: 72px 0; }
-  .container      { padding: 0 20px; }
+  .section   { padding: 64px 0; }
+  .container { padding: 0 18px; }
 
-  /* ── Nav ── */
+  /* ── Nav: posición relativa para el drawer ── */
+  .hero   { overflow: visible; }   /* permite que el drawer salga del hero */
   .nav {
-    padding: max(16px, calc(var(--safe-top) + 10px)) 20px 16px;
+    padding: max(16px, calc(var(--safe-top) + 10px)) 18px 16px;
+    position: relative;
   }
 
   /* ── Hero ── */
   .hero-content {
-    padding: 48px 24px 56px;
-    justify-content: center;   /* keep centered, not pushed to bottom */
+    padding: 36px 20px 52px;
   }
 
-  .hero-badge    { margin-bottom: 28px; }
-  .hero-title    { margin-bottom: 24px; }
-  .hero-tagline  { margin-bottom: 40px; font-size: 1rem; }
-
+  .hero-badge    { margin-bottom: 24px; font-size: 0.72rem; }
+  .hero-title    { margin-bottom: 20px; }
+  .hero-tagline  { margin-bottom: 36px; font-size: 0.96rem; line-height: 1.8; }
   .coming-soon-label { font-size: 0.78rem; }
 
   /* ── Why cards ── */
-  .why-cards { grid-template-columns: 1fr; gap: 16px; }
-  .why-card  { padding: 32px 28px; }
+  .why-cards { grid-template-columns: 1fr; gap: 14px; }
+  .why-card  { padding: 28px 22px; }
 
   /* ── Steps ── */
-  .steps    { grid-template-columns: 1fr; gap: 12px; }
-  .step-card { padding: 32px 24px; }
+  .steps     { grid-template-columns: 1fr; gap: 12px; }
+  .step-card { padding: 28px 22px; }
 
-  /* ── University cards ── */
-  /*
-   * 2-column grid — replaces horizontal scroll.
-   * Horizontal scroll hides content; a visible grid is simpler
-   * and shows all 12 universities at once.
-   */
+  /* ── Universities filter bar: scroll horizontal, no wrap ── */
+  .unis-filter-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+    margin-bottom: 20px;
+    gap: 8px;
+  }
+  .unis-filter-bar::-webkit-scrollbar { display: none; }
+  .unis-filter-btn { flex-shrink: 0; white-space: nowrap; }
+
+  /* ── University cards: 2 columnas ── */
   .unis-grid {
-    display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    /* reset any flex overrides from previous blocks */
-    overflow-x: unset;
-    padding: 0;
-    margin: 0;
-    scroll-snap-type: unset;
+    grid-auto-rows: auto;
+    gap: 10px;
   }
 
   .uni-card {
-    flex: unset;             /* no flex sizing */
-    scroll-snap-align: unset;
-    padding: 16px 12px;
-    gap: 10px;
-    min-height: 100px;       /* consistent height across the grid */
+    height: auto;
+    min-height: 160px;
+    padding: 14px 10px 12px;
+    gap: 8px;
   }
 
-  /* Logo area */
-  .uni-logo-wrap {
-    height: 48px;
-    padding: 6px 6px;
-  }
+  .uni-logo-wrap { height: 46px; padding: 5px; }
+  .uni-logo-img  { max-height: 34px; }
+  .uni-abbr      { font-size: 0.68rem; }
+  .uni-full      { font-size: 0.74rem; line-height: 1.35; }
+  .uni-type-badge { font-size: 0.6rem; padding: 2px 6px; }
 
-  .uni-logo-img {
-    max-height: 36px;
-    max-width: 100%;
+  /* ── MCP section ── */
+  .mcp-flow {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+    flex-wrap: nowrap;
   }
+  .mcp-flow::-webkit-scrollbar { display: none; }
+  .mcp-flow-item { flex-shrink: 0; }
 
-  /* Initials badge fallback */
-  .uni-initial {
-    width: 46px;
-    height: 46px;
+  .mcp-tools-grid { grid-template-columns: 1fr; gap: 8px; }
+
+  .mcp-config-code {
     font-size: 0.72rem;
-  }
-
-  /* Full name: keep it dark and legible — do NOT reduce below 0.78rem */
-  .uni-full {
-    font-size: 0.78rem;
-    font-weight: 500;
-    color: var(--color-primary);
+    padding: 16px 18px;
+    -webkit-overflow-scrolling: touch;
   }
 
   /* ── Vault animation ── */
   .vault-scene {
     flex-direction: column;
     align-items: center;
-    gap: 20px;
-    padding: 28px 20px 32px;
+    gap: 16px;
+    padding: 24px 16px 28px;
     min-height: unset;
   }
-
-  .vault-left {
-    flex: unset;
-    width: 100%;
-    justify-content: center;
-    min-height: unset;
-  }
-
-  .vault-center {
-    order: 2;
-    flex-direction: column;
-    gap: 8px;
-    width: 100%;
-    align-items: center;
-  }
-
-  .vault-path { transform: rotate(90deg); }
-
-  .vault-right {
-    flex: unset;
-    width: 100%;
-    align-items: center;
-    order: 3;
-  }
-
-  .vault-wrap    { width: 100%; max-width: 340px; }
-  .vault-interior { width: 100%; }
-  .vault-door    { width: 100%; }
+  .vault-left    { flex: unset; width: 100%; justify-content: center; min-height: unset; }
+  .vault-center  { order: 2; flex-direction: column; gap: 8px; width: 100%; align-items: center; }
+  .vault-path    { transform: rotate(90deg); }
+  .vault-right   { flex: unset; width: 100%; align-items: center; order: 3; }
+  .vault-wrap    { width: 100%; max-width: 320px; }
+  .vault-interior, .vault-door { width: 100%; }
 
   /* ── Mock apuntes ── */
   .mock-chrome-dots   { display: none; }
   .mock-chrome-spacer { display: none; }
-
-  .mock-chrome {
-    padding: 10px 16px;
-    justify-content: center;
-  }
-
-  .mock-chrome-url { font-size: 0.74rem; max-width: 220px; }
-
-  .mock-body { flex-direction: column; }
+  .mock-chrome        { padding: 10px 16px; justify-content: center; }
+  .mock-chrome-url    { font-size: 0.74rem; max-width: 220px; }
+  .mock-body          { flex-direction: column; }
 
   .mock-sidebar {
     width: 100%;
@@ -1969,7 +2006,7 @@
     padding: 0 4px;
     overflow-x: auto;
     scrollbar-width: none;
-    background: var(--color-bg);
+    -webkit-overflow-scrolling: touch;
   }
   .mock-sidebar::-webkit-scrollbar { display: none; }
   .mock-sidebar-label { display: none; }
@@ -1987,96 +2024,91 @@
     border-bottom: 2px solid transparent;
     font-size: 0.8rem;
   }
-
-  .mock-career-btn--active {
-    background: transparent;
-    border-bottom-color: var(--color-primary);
-    font-weight: 700;
-  }
-
-  .mock-subject-btn--active {
-    background: transparent;
-    color: var(--color-primary);
-    font-weight: 700;
-    border-bottom-color: var(--color-primary);
-  }
+  .mock-career-btn--active  { background: transparent; border-bottom-color: var(--color-primary); font-weight: 700; }
+  .mock-subject-btn--active { background: transparent; color: var(--color-primary); font-weight: 700; border-bottom-color: var(--color-primary); }
 
   .mock-file-row {
     padding: 12px 16px;
     min-height: var(--touch-min);
-    border-bottom: 1px solid rgba(150, 169, 185, 0.18);
+    border-bottom: 1px solid rgba(150,169,185,0.18);
     border-radius: 0;
     gap: 10px;
   }
-
   .mock-file-name   { font-size: 0.82rem; }
   .mock-file-author { display: none; }
-
-  .mock-dl-btn {
-    min-width: var(--touch-min);
-    min-height: var(--touch-min);
-    opacity: 0.5;
-  }
-
+  .mock-dl-btn      { min-width: var(--touch-min); min-height: var(--touch-min); }
   .mock-topbar      { padding: 10px 14px; gap: 8px; }
   .mock-upload-btn  { padding: 8px 12px; font-size: 0.75rem; }
 
-  /* ── Contribute section ── */
+  /* ── Contribute ── */
   .contribute-actions {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
   }
-
   .btn-secondary,
-  .btn-outline {
-    justify-content: center;
-    min-height: var(--touch-min);
-  }
+  .btn-outline { justify-content: center; min-height: var(--touch-min); }
 
   /* ── Footer ── */
-  .footer-top    { flex-direction: column; gap: 28px; }
-  .footer-brand  { max-width: 100%; }
-
-  .footer-nav {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 8px 20px;
-  }
-
+  .footer-top   { flex-direction: column; gap: 28px; }
+  .footer-brand { max-width: 100%; }
+  .footer-nav   { flex-direction: row; flex-wrap: wrap; gap: 8px 20px; }
   .footer-nav h4 { width: 100%; }
+
+  /* ── Mobile CTA bar ── */
+  .mobile-cta-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+    background: var(--color-primary);
+    border-top: 1px solid rgba(255,255,255,0.12);
+    z-index: 50;
+  }
+  .mobile-cta-bar .btn-primary {
+    width: 100%;
+    justify-content: center;
+    font-size: 1rem;
+  }
 }
 
 /* ══════════════════════════════════════════
-   RESPONSIVE — 480px (small phones)
+   RESPONSIVE — 480px (teléfonos pequeños)
 ══════════════════════════════════════════ */
 @media (max-width: 480px) {
 
-  /* Title stays on one line on very small screens */
+  .container { padding: 0 16px; }
+
+  /* Hero */
   .hero-title-accent { display: inline; }
+  .hero-title   { font-size: clamp(2.6rem, 10vw, 3.6rem); margin-bottom: 18px; }
+  .hero-tagline { font-size: 0.9rem; margin-bottom: 32px; }
+  .hero-content { padding: 28px 16px 48px; }
 
-  .hero-title   { font-size: clamp(2.8rem, 11vw, 4rem); }
-  .hero-tagline { font-size: 0.95rem; }
-
-  /* Universities: stay 2-col but tighter */
-  .unis-grid { gap: 10px; }
-
-  .uni-card {
-    padding: 14px 10px;
-    gap: 8px;
-    min-height: 90px;
-    border-radius: 12px;
-  }
-
-  .uni-logo-wrap { height: 42px; padding: 5px 4px; }
-  .uni-logo-img  { max-height: 32px; }
-  /* Never below 0.76rem — text must stay readable */
-  .uni-full      { font-size: 0.76rem; }
-
-  /* File card in vault animation */
-  .vfile-inner { width: 152px; }
+  /* University grid: 2 col más compacto */
+  .unis-grid { gap: 8px; grid-auto-rows: auto; }
+  .uni-card  { min-height: 150px; padding: 12px 8px 10px; gap: 6px; }
+  .uni-logo-wrap { height: 40px; }
+  .uni-logo-img  { max-height: 30px; }
+  .uni-full      { font-size: 0.7rem; }
 
   /* Vault */
-  .vault-wrap, .vault-interior, .vault-door { width: 100%; }
-  .vault-wrap { max-width: 100%; }
+  .vfile-inner { width: 148px; }
+  .vault-wrap  { max-width: 100%; }
+
+  /* MCP code */
+  .mcp-config-code { font-size: 0.68rem; padding: 14px 16px; }
+  .mcp-tool-card   { padding: 14px; }
+
+  /* Sections */
+  .section { padding: 52px 0; }
+  .section-title    { font-size: clamp(1.6rem, 6vw, 2rem); }
+  .section-subtitle { font-size: 0.9rem; }
+
+  /* Why / Steps */
+  .why-card  { padding: 24px 18px; }
+  .step-card { padding: 24px 18px; }
+  .step-number { font-size: 2.5rem; }
 }

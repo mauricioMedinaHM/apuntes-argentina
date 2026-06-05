@@ -5,6 +5,7 @@
 // VARIABLES DE ENTORNO REQUERIDAS (ver .env.example):
 //   CF_R2_BUCKET_NAME, CF_R2_ACCESS_KEY_ID, CF_R2_SECRET_ACCESS_KEY,
 //   CF_R2_ENDPOINT, ALLOWED_ORIGINS, UPLOAD_PORT
+//   CLERK_SECRET_KEY, VITE_CLERK_PUBLISHABLE_KEY (para auth backend)
 
 import 'dotenv/config'
 import express        from 'express'
@@ -12,6 +13,8 @@ import multer         from 'multer'
 import cors           from 'cors'
 import helmet         from 'helmet'
 import rateLimit      from 'express-rate-limit'
+import { clerkMiddleware, requireAuth, getAuth } from '@clerk/express'
+import { fileTypeFromBuffer } from 'file-type'
 import {
   S3Client, PutObjectCommand, ListObjectsV2Command,
   DeleteObjectCommand, GetObjectCommand,
@@ -29,6 +32,7 @@ const BUCKET = process.env.CF_R2_BUCKET_NAME
 
 // ── Input sanitization ────────────────────────────────────────────────────
 // Previene path traversal, null bytes y caracteres peligrosos
+// Máximo 100 caracteres por segmento (hardened de 200 a 100)
 function sanitizePath(str) {
   if (typeof str !== 'string') return ''
   return str
@@ -37,7 +41,7 @@ function sanitizePath(str) {
     .replace(/[/\\]/g, '')        // slashes
     .replace(/[<>:"|?*]/g, '')    // shell/windows dangerous chars
     .trim()
-    .slice(0, 200)                // max length
+    .slice(0, 100)                // max 100 chars por segmento
 }
 
 function sanitizeKey(key) {
@@ -66,14 +70,28 @@ const app = express()
 // Trust proxy (necesario en Vercel, Railway, Render para rate limit correcto)
 app.set('trust proxy', 1)
 
-// Security headers (sin CSP agresivo para no romper el iframe de preview)
+// Security headers — helmet con CSP básico habilitado
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:     ["'self'"],
+      scriptSrc:      ["'self'"],
+      styleSrc:       ["'self'", "'unsafe-inline'"],
+      imgSrc:         ["'self'", 'data:', 'blob:'],
+      connectSrc:     ["'self'"],
+      frameSrc:       ["'none'"],
+      objectSrc:      ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  },
   crossOriginEmbedderPolicy: false,
   crossOriginResourcePolicy: { policy: 'cross-origin' },
+  // X-Content-Type-Options: nosniff  — activado por defecto en helmet
+  // X-Frame-Options: DENY            — activado por defecto en helmet
+  // Strict-Transport-Security        — activado por defecto en helmet
 }))
 
-// CORS — solo orígenes permitidos
+// CORS — solo orígenes permitidos; en producción NUNCA '*'
 const ALLOWED = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176')
   .split(',').map(s => s.trim()).filter(Boolean)
 
@@ -85,10 +103,16 @@ app.use(cors({
     cb(new Error(`CORS: origin no permitido — ${origin}`))
   },
   methods: ['GET', 'POST', 'DELETE'],
-  allowedHeaders: ['Content-Type'],
+  // Authorization agregado para que el frontend pueda enviar el JWT de Clerk
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }))
 
 app.use(express.json({ limit: '1mb' }))
+
+// ── Clerk middleware (verifica JWT en todos los requests) ─────────────────
+// clerkMiddleware() no rechaza requests sin token — solo adjunta auth context.
+// Los endpoints protegidos usan requireAuth() como middleware adicional.
+app.use(clerkMiddleware())
 
 // ── Rate limiting ─────────────────────────────────────────────────────────
 const globalLimiter = rateLimit({
@@ -105,10 +129,22 @@ const uploadLimiter = rateLimit({
   message: { error: 'Límite de subidas alcanzado. Intentá de nuevo en 1 hora.' },
 })
 
+const deleteLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,  // 1 hora
+  max: 10,                    // 10 deletes por IP por hora
+  message: { error: 'Límite de eliminaciones alcanzado. Intentá de nuevo en 1 hora.' },
+})
+
 const downloadLimiter = rateLimit({
   windowMs: 60 * 1000,        // 1 min
   max: 60,                    // 60 descargas por minuto
   message: { error: 'Demasiadas descargas. Esperá un momento.' },
+})
+
+const treeLimiter = rateLimit({
+  windowMs: 60 * 1000,        // 1 min
+  max: 100,                   // 100 req/min por IP
+  message: { error: 'Demasiadas solicitudes. Esperá un momento.' },
 })
 
 app.use(globalLimiter)
@@ -122,6 +158,75 @@ const ALLOWED_MIMES = [
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 ]
+
+// Mapeo de extensiones reales (magic bytes) a mimetypes aceptados
+// file-type detecta por contenido; algunos Office legacy no tienen magic bytes claros
+const MAGIC_TO_ALLOWED_MIME = {
+  'application/pdf': 'application/pdf',
+  'image/png':       'image/png',
+  'image/jpeg':      'image/jpeg',
+  // OOXML (.docx/.pptx) se detectan como zip
+  'application/zip': null, // permitido si el declared mime es un tipo OOXML
+  // Office 97-2003 (.doc/.ppt) — file-type los detecta como application/x-cfb
+  'application/x-cfb': null, // permitido si el declared mime es msword/ms-powerpoint
+}
+
+// Mimetypes OOXML (son ZIPs internamente)
+const OOXML_MIMES = new Set([
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+])
+
+// Mimetypes Office legacy (CFB internamente)
+const LEGACY_OFFICE_MIMES = new Set([
+  'application/msword',
+  'application/vnd.ms-powerpoint',
+])
+
+async function validateMagicBytes(buffer, declaredMime) {
+  const detected = await fileTypeFromBuffer(buffer)
+
+  if (!detected) {
+    // file-type no pudo detectar — rechazar para evitar archivos maliciosos sin firma
+    return { valid: false, reason: `No se pudo detectar el tipo real del archivo` }
+  }
+
+  const detectedMime = detected.mime
+
+  // PDF — debe matchear exacto
+  if (declaredMime === 'application/pdf') {
+    if (detectedMime !== 'application/pdf') {
+      return { valid: false, reason: `El archivo declara ser PDF pero es ${detectedMime}` }
+    }
+    return { valid: true }
+  }
+
+  // Imágenes — deben matchear exacto
+  if (declaredMime === 'image/png' || declaredMime === 'image/jpeg') {
+    if (detectedMime !== declaredMime) {
+      return { valid: false, reason: `El archivo declara ser ${declaredMime} pero es ${detectedMime}` }
+    }
+    return { valid: true }
+  }
+
+  // OOXML — internamente son ZIP
+  if (OOXML_MIMES.has(declaredMime)) {
+    if (detectedMime !== 'application/zip') {
+      return { valid: false, reason: `El archivo OOXML no tiene firma ZIP válida (detectado: ${detectedMime})` }
+    }
+    return { valid: true }
+  }
+
+  // Office legacy — internamente son CFB (Compound File Binary)
+  if (LEGACY_OFFICE_MIMES.has(declaredMime)) {
+    if (detectedMime !== 'application/x-cfb') {
+      return { valid: false, reason: `El archivo Office legacy no tiene firma CFB válida (detectado: ${detectedMime})` }
+    }
+    return { valid: true }
+  }
+
+  return { valid: false, reason: `Tipo no verificable: ${declaredMime}` }
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -262,14 +367,14 @@ app.get('/api/health', (_req, res) => {
 })
 
 /** Tree */
-app.get('/api/tree', async (_req, res) => {
+app.get('/api/tree', treeLimiter, async (_req, res) => {
   log('GET', '/api/tree')
   try { res.json(await buildTree()) }
   catch (err) { res.status(500).json({ error: err.message }) }
 })
 
 /** Files in subject */
-app.get('/api/files', async (req, res) => {
+app.get('/api/files', treeLimiter, async (req, res) => {
   const uni     = sanitizePath(req.query.university)
   const career  = sanitizePath(req.query.career)
   const subject = sanitizePath(req.query.subject)
@@ -288,80 +393,105 @@ app.get('/api/files', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
-/** Upload */
-app.post('/api/upload', uploadLimiter, upload.single('file'), async (req, res) => {
-  const uni        = sanitizePath(req.body.university)
-  const career     = sanitizePath(req.body.career)
-  const subject    = sanitizePath(req.body.subject)
-  const uploaderId = typeof req.body.uploaderId === 'string' ? req.body.uploaderId.slice(0, 64) : ''
+/** Upload — requiere autenticación Clerk */
+app.post(
+  '/api/upload',
+  uploadLimiter,
+  requireAuth({ signInUrl: '/unauthorized' }),  // 401 si no hay JWT válido
+  upload.single('file'),
+  async (req, res) => {
+    const { userId } = getAuth(req)              // userId del JWT verificado
 
-  log('POST', '/api/upload', `${uni}/${career}/${subject} — ${req.file?.originalname}`)
+    const uni     = sanitizePath(req.body.university)
+    const career  = sanitizePath(req.body.career)
+    const subject = sanitizePath(req.body.subject)
 
-  if (!req.file)                  return res.status(400).json({ error: 'No se recibió archivo' })
-  if (!uni || !career || !subject) return res.status(400).json({ error: 'university, career y subject son requeridos' })
+    log('POST', '/api/upload', `${uni}/${career}/${subject} — ${req.file?.originalname} (user: ${userId})`)
 
-  const { buffer, mimetype, ext } = await compressFile(req.file.buffer, req.file.mimetype, req.file.originalname)
+    if (!req.file)                   return res.status(400).json({ error: 'No se recibió archivo' })
+    if (!uni || !career || !subject) return res.status(400).json({ error: 'university, career y subject son requeridos' })
 
-  // Nombre limpio — preserva español, reemplaza resto
-  const baseName = req.file.originalname
-    .normalize('NFC')
-    .replace(/\.\w+$/, '')
-    .replace(/[^\w.\- áéíóúÁÉÍÓÚñÑüÜ]/g, '_')
-    .slice(0, 150)
-  const clean = baseName + ext
+    // Validación de magic bytes — rechaza si el tipo real no coincide con el declarado
+    const magicCheck = await validateMagicBytes(req.file.buffer, req.file.mimetype)
+    if (!magicCheck.valid) {
+      return res.status(415).json({ error: magicCheck.reason })
+    }
 
-  const key = `${uni}/${career}/${subject}/${clean}`
+    const { buffer, mimetype, ext } = await compressFile(req.file.buffer, req.file.mimetype, req.file.originalname)
 
-  try {
-    await s3.send(new PutObjectCommand({
-      Bucket: BUCKET, Key: key, Body: buffer, ContentType: mimetype,
-      Metadata: {
-        'uploaded-at': new Date().toISOString(),
-        'university': uni, 'career': career, 'subject': subject,
-        'uploader-id': uploaderId,
-      },
-    }))
+    // Nombre limpio — preserva español, reemplaza resto; limitado a 100 chars base
+    const baseName = req.file.originalname
+      .normalize('NFC')
+      .replace(/\.\w+$/, '')
+      .replace(/[^\w.\- áéíóúÁÉÍÓÚñÑüÜ]/g, '_')
+      .slice(0, 100)
+    const clean = baseName + ext
 
-    // Registrar upload y actualizar índice (background)
-    readMeta('_meta/uploads.json').then(data => {
-      data[key] = { uploaderId, uploadedAt: new Date().toISOString() }
-      return writeMeta('_meta/uploads.json', data)
-    }).catch(console.error)
+    const key = `${uni}/${career}/${subject}/${clean}`
 
-    updateIndex()
-    res.json({ success: true, key, name: clean, size: buffer.length })
-  } catch (err) { res.status(500).json({ error: err.message }) }
-})
+    try {
+      await s3.send(new PutObjectCommand({
+        Bucket: BUCKET, Key: key, Body: buffer, ContentType: mimetype,
+        Metadata: {
+          'uploaded-at': new Date().toISOString(),
+          'university': uni, 'career': career, 'subject': subject,
+          'uploader-id': userId,                 // userId de Clerk (verificado)
+        },
+      }))
 
-/** Delete — verifica que el uploaderId coincida */
-app.delete('/api/files', async (req, res) => {
-  const rawKey     = req.body.key
-  const uploaderId = typeof req.body.uploaderId === 'string' ? req.body.uploaderId.slice(0, 64) : ''
+      // Registrar upload y actualizar índice (background)
+      readMeta('_meta/uploads.json').then(data => {
+        data[key] = { uploaderId: userId, uploadedAt: new Date().toISOString() }
+        return writeMeta('_meta/uploads.json', data)
+      }).catch(console.error)
 
-  const key = sanitizeKey(rawKey)
-  log('DELETE', '/api/files', key)
+      updateIndex()
+      res.json({ success: true, key, name: clean, size: buffer.length })
+    } catch (err) { res.status(500).json({ error: err.message }) }
+  }
+)
 
-  if (!key) return res.status(400).json({ error: 'key inválido' })
+/** Delete — requiere autenticación Clerk y ownership */
+app.delete(
+  '/api/files',
+  deleteLimiter,
+  requireAuth({ signInUrl: '/unauthorized' }),  // 401 si no hay JWT válido
+  async (req, res) => {
+    const { userId } = getAuth(req)             // userId del JWT verificado
 
-  // Verificar ownership via _meta/uploads.json
-  try {
-    const uploads = await readMeta('_meta/uploads.json')
-    const record  = uploads[rawKey] // usar rawKey para buscar en el registro
+    const rawKey = req.body.key
+    const key    = sanitizeKey(rawKey)
+    log('DELETE', '/api/files', `${key} (user: ${userId})`)
 
-    if (!record) return res.status(403).json({ error: 'No se encontró el registro de este archivo' })
-    if (record.uploaderId !== uploaderId)
-      return res.status(403).json({ error: 'No tenés permiso para eliminar este archivo' })
+    if (!key) return res.status(400).json({ error: 'key inválido' })
 
-    await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }))
+    // Protección extra: nunca borrar archivos internos
+    if (rawKey.startsWith('_meta/') || rawKey === 'index.json') {
+      return res.status(403).json({ error: 'No se puede eliminar archivos internos del sistema' })
+    }
 
-    // Limpiar el registro
-    delete uploads[rawKey]
-    await writeMeta('_meta/uploads.json', uploads)
-    updateIndex()
+    try {
+      const uploads = await readMeta('_meta/uploads.json')
+      const record  = uploads[rawKey]
 
-    res.json({ success: true })
-  } catch (err) { res.status(500).json({ error: err.message }) }
-})
+      if (!record) return res.status(403).json({ error: 'No se encontró el registro de este archivo' })
+
+      // Verificar ownership usando el userId de Clerk (no un device ID del body)
+      if (record.uploaderId !== userId) {
+        return res.status(403).json({ error: 'No tenés permiso para eliminar este archivo' })
+      }
+
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }))
+
+      // Limpiar el registro
+      delete uploads[rawKey]
+      await writeMeta('_meta/uploads.json', uploads)
+      updateIndex()
+
+      res.json({ success: true })
+    } catch (err) { res.status(500).json({ error: err.message }) }
+  }
+)
 
 /** Preview — sirve inline para previsualización */
 app.get('/api/preview', downloadLimiter, async (req, res) => {
@@ -426,7 +556,7 @@ app.post('/api/ratings', rateLimit({ windowMs: 60000, max: 30 }), async (req, re
 app.get('/api/uploads', async (_req, res) => {
   try {
     const data = await readMeta('_meta/uploads.json')
-    // No exponer device IDs — solo confirmar qué archivos tienen registro
+    // No exponer user IDs — solo confirmar qué archivos tienen registro
     const safe = {}
     for (const [k, v] of Object.entries(data)) {
       safe[k] = { uploadedAt: v.uploadedAt }
@@ -435,23 +565,36 @@ app.get('/api/uploads', async (_req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
-/** Verificar si el device actual es dueño de un archivo */
-app.post('/api/verify-owner', async (req, res) => {
-  const key        = sanitizeKey(req.body.key)
-  const uploaderId = typeof req.body.uploaderId === 'string' ? req.body.uploaderId.slice(0, 64) : ''
-  if (!key) return res.json({ isOwner: false })
+/** Verificar si el usuario autenticado es dueño de un archivo */
+app.post(
+  '/api/verify-owner',
+  requireAuth({ signInUrl: '/unauthorized' }),
+  async (req, res) => {
+    const { userId } = getAuth(req)
+    const key = sanitizeKey(req.body.key)
+    if (!key) return res.json({ isOwner: false })
 
-  try {
-    const data   = await readMeta('_meta/uploads.json')
-    const record = data[req.body.key]
-    res.json({ isOwner: !!(record && record.uploaderId === uploaderId) })
-  } catch { res.json({ isOwner: false }) }
+    try {
+      const data   = await readMeta('_meta/uploads.json')
+      const record = data[req.body.key]
+      res.json({ isOwner: !!(record && record.uploaderId === userId) })
+    } catch { res.json({ isOwner: false }) }
+  }
+)
+
+// ── 401 handler para requireAuth ──────────────────────────────────────────
+app.get('/unauthorized', (_req, res) => {
+  res.status(401).json({ error: 'Autenticación requerida' })
 })
 
 // ── Error handler global ──────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
   if (err.message?.includes('CORS')) return res.status(403).json({ error: err.message })
   if (err.message?.includes('Tipo no permitido')) return res.status(415).json({ error: err.message })
+  // Clerk auth errors
+  if (err.status === 401 || err.name === 'SignedOutAuthObject') {
+    return res.status(401).json({ error: 'Autenticación requerida' })
+  }
   console.error('[error]', err.message)
   res.status(500).json({ error: 'Error interno del servidor' })
 })
@@ -461,6 +604,7 @@ app.listen(PORT, () => {
   console.log(`\n✅ Server → http://localhost:${PORT}`)
   console.log(`   Bucket : ${BUCKET ?? '⚠️  CF_R2_BUCKET_NAME no configurado'}`)
   console.log(`   CORS   : ${ALLOWED.join(', ')}`)
-  if (!process.env.CF_R2_ACCESS_KEY_ID) console.warn('   ⚠️  CF_R2_ACCESS_KEY_ID no configurado')
+  if (!process.env.CF_R2_ACCESS_KEY_ID)  console.warn('   ⚠️  CF_R2_ACCESS_KEY_ID no configurado')
   if (!process.env.CF_R2_SECRET_ACCESS_KEY) console.warn('   ⚠️  CF_R2_SECRET_ACCESS_KEY no configurado')
+  if (!process.env.CLERK_SECRET_KEY)     console.warn('   ⚠️  CLERK_SECRET_KEY no configurado — autenticación deshabilitada')
 })

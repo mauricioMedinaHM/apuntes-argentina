@@ -5,7 +5,7 @@ import {
   CheckCircle, XCircle, Trash2, ArrowLeft, Plus, X, Loader, LogIn,
 } from 'lucide-react'
 
-import { useAuth, SignInButton, SignUpButton } from '@clerk/react'
+import { useAuth, useSession, SignInButton, SignUpButton } from '@clerk/react'
 import { UNIVERSITIES, FACULTIES } from './universities.js'
 
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:3002/api'
@@ -136,6 +136,13 @@ function Instructions({ uni, career, subject }) {
 
 export default function UploadPage({ onBack }) {
   const { isSignedIn } = useAuth()
+  const { session }    = useSession()
+
+  // Obtiene el token JWT de Clerk para autenticar requests al backend
+  const getToken = async () => {
+    if (!session) return null
+    try { return await session.getToken() } catch { return null }
+  }
   const [tree, setTree]           = useState({ universities: [], careers: {}, subjects: {} })
   const [uni, setUni]             = useState('UBA')
   const [career, setCareer]       = useState('')
@@ -209,6 +216,8 @@ export default function UploadPage({ onBack }) {
     fd.append('subject', subject)
 
     try {
+      const token = await getToken()
+
       // Fake progress while uploading
       const tick = setInterval(() => {
         setQueue(prev => prev.map(e =>
@@ -218,7 +227,11 @@ export default function UploadPage({ onBack }) {
         ))
       }, 300)
 
-      const res = await fetch(`${API}/upload`, { method: 'POST', body: fd })
+      const res = await fetch(`${API}/upload`, {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        body: fd,
+      })
       clearInterval(tick)
 
       if (!res.ok) {
@@ -255,7 +268,19 @@ export default function UploadPage({ onBack }) {
   const deleteFile = async (key) => {
     if (!confirm(`¿Eliminar ${key.split('/').pop()}?`)) return
     try {
-      await fetch(`${API}/files`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) })
+      const token = await getToken()
+      const res = await fetch(`${API}/files`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ key }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error ?? `Error ${res.status}`)
+      }
       setFiles(prev => prev.filter(f => f.key !== key))
     } catch (err) {
       alert('Error al eliminar: ' + err.message)

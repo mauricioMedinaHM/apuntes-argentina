@@ -900,28 +900,152 @@ kbd {
 .up-no-files p { font-size: 0.88rem; color: var(--color-secondary); }
 
 /* ── Responsive ── */
-@media (max-width: 768px) {
-  .up-body { flex-direction: column; }
+/* ── Select nativo para mobile — oculto en desktop ── */
+.up-uni-select { display: none; }
 
+/* ══════════════════════════════════════════
+   UPLOAD PAGE — MOBILE (768px)
+══════════════════════════════════════════ */
+@media (max-width: 768px) {
+
+  /* Raíz */
+  .up-root { min-height: 100dvh; }
+
+  /* Chrome */
+  .up-chrome {
+    padding: 10px 14px;
+    gap: 8px;
+  }
+  .up-chrome-url { font-size: 0.72rem; }
+  .up-back-btn   { padding: 8px 12px; font-size: 0.82rem; }
+
+  /* App shell: columna */
+  .up-body { flex-direction: column; height: auto; }
+
+  /* Sidebar: horizontal compacto */
   .up-sidebar {
     width: 100%;
     border-right: none;
     border-bottom: 1px solid var(--color-border);
-    max-height: 240px;
-    padding: 12px;
+    padding: 12px 14px 14px;
+    max-height: none;
+    overflow-y: visible;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
-  .up-uni-list {
+  /* Selector nativo — visible en mobile */
+  .up-uni-select {
+    display: block;
+    width: 100%;
+    padding: 10px 14px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    border: 1.5px solid var(--color-border);
+    border-radius: 10px;
+    background: var(--color-white);
+    color: var(--color-primary);
+    appearance: auto;
+    cursor: pointer;
+    min-height: var(--touch-min);
+  }
+
+  /* Lista de botones — oculta en mobile */
+  .up-uni-list { display: none; }
+
+  /* Carreras y materias: chips horizontales scrolleables */
+  .up-item-list {
     flex-direction: row;
-    flex-wrap: wrap;
-    gap: 4px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    gap: 6px;
+    padding-bottom: 4px;
+  }
+  .up-item-list::-webkit-scrollbar { display: none; }
+
+  .up-item-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+    min-height: 36px;
+    padding: 7px 12px;
+    font-size: 0.8rem;
   }
 
-  .up-uni-btn {
-    width: auto;
-    padding: 6px 10px;
-    font-size: 0.75rem;
+  /* Input nueva carrera/materia */
+  .up-new-row { gap: 8px; }
+  .up-new-input {
+    font-size: 0.88rem;
+    padding: 9px 12px;
+    min-height: 40px;
+  }
+  .up-new-add {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
   }
 
-  .up-main { padding: 16px; }
+  /* Labels sidebar */
+  .up-sidebar-label { font-size: 0.72rem; margin-top: 0 !important; }
+
+  /* Main */
+  .up-main { padding: 14px; }
+
+  /* Topbar */
+  .up-topbar { padding: 10px 14px; }
+  .up-breadcrumb { font-size: 0.78rem; gap: 4px; }
+  .up-upload-btn { padding: 8px 14px; font-size: 0.82rem; }
+
+  /* Dropzone */
+  .up-dropzone {
+    padding: 28px 16px;
+    border-radius: 12px;
+  }
+  .up-drop-title { font-size: 0.92rem; }
+  .up-drop-sub   { font-size: 0.78rem; }
+
+  /* Queue items */
+  .up-queue-item {
+    padding: 10px 12px;
+    gap: 10px;
+    min-height: var(--touch-min);
+  }
+  .up-qfile-name { font-size: 0.82rem; }
+  .up-qfile-size { font-size: 0.72rem; }
+
+  /* Instructions */
+  .up-inst { padding: 20px 16px; }
+  .up-inst-title { font-size: 1rem; }
+
+  /* Auth gate */
+  .up-auth-card {
+    padding: 40px 24px 32px;
+    border-radius: 16px;
+  }
+  .up-auth-title { font-size: 1.1rem; }
+}
+
+/* ══════════════════════════════════════════
+   UPLOAD PAGE — 480px (teléfonos pequeños)
+══════════════════════════════════════════ */
+@media (max-width: 480px) {
+
+  .up-chrome     { padding: 8px 12px; }
+  .up-topbar     { padding: 8px 12px; }
+  .up-main       { padding: 12px; }
+  .up-sidebar    { padding: 10px 12px 12px; }
+
+  .up-uni-select { font-size: 0.85rem; padding: 9px 12px; }
+
+  .up-dropzone   { padding: 24px 12px; }
+  .up-drop-icon  { width: 28px; height: 28px; }
+
+  .up-inst-path  { font-size: 0.72rem; gap: 4px; }
+  .up-inst-badge { font-size: 0.68rem; }
+
+  .up-auth-card  { padding: 36px 18px 28px; }
+  .up-auth-title { font-size: 1rem; }
+  .up-auth-desc  { font-size: 0.84rem; }
 }
