@@ -178,6 +178,7 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(shouldShowSplash)
   const [view, setView]             = useState('landing') // 'landing' | 'upload' | 'apuntes'
   const [uniFilter, setUniFilter]   = useState('todas')
+  const [navOpen, setNavOpen]       = useState(false)
 
   if (view === 'upload') {
     return <UploadPage onBack={() => setView('landing')} />
@@ -210,23 +211,50 @@ export default function App() {
             <BookMarked size={24} strokeWidth={2} />
             <span>ApuntesArgentina</span>
           </div>
-          <div className="nav-actions">
+
+          {/* Desktop actions */}
+          <div className="nav-actions nav-actions--desktop">
             <button className="nav-upload-btn" onClick={() => setView('upload')}>
               <Upload size={15} />
               Subir apunte
             </button>
-            <a
-              href="https://github.com/mauricioMedinaHM/apuntes-argentina"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="nav-github"
-            >
+            <a href="https://github.com/mauricioMedinaHM/apuntes-argentina" target="_blank" rel="noopener noreferrer" className="nav-github">
               <Github size={18} />
               GitHub
             </a>
             <NavAuth />
           </div>
+
+          {/* Mobile: auth icon + hamburger */}
+          <div className="nav-actions nav-actions--mobile">
+            <button className="nav-hamburger" onClick={() => setNavOpen(o => !o)} aria-label="Menú">
+              <span className={`nav-hamburger-line ${navOpen ? 'nav-hamburger-line--open' : ''}`} />
+              <span className={`nav-hamburger-line ${navOpen ? 'nav-hamburger-line--open' : ''}`} />
+              <span className={`nav-hamburger-line ${navOpen ? 'nav-hamburger-line--open' : ''}`} />
+            </button>
+          </div>
         </nav>
+
+        {/* Mobile drawer */}
+        <AnimatePresence>
+          {navOpen && (
+            <motion.div
+              className="nav-drawer"
+              initial={{ opacity: 0, y: -12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.22 }}
+            >
+              <div className="nav-drawer-auth"><NavAuth /></div>
+              <button className="nav-drawer-item" onClick={() => { setView('upload'); setNavOpen(false) }}>
+                <Upload size={18} /> Subir apunte
+              </button>
+              <a href="https://github.com/mauricioMedinaHM/apuntes-argentina" target="_blank" rel="noopener noreferrer" className="nav-drawer-item" onClick={() => setNavOpen(false)}>
+                <Github size={18} /> GitHub
+              </a>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="hero-content">
           <motion.div

@@ -7,7 +7,7 @@ import {
   X, Check, FileUp, Trash2,
 } from 'lucide-react'
 import { UNIVERSITIES, FACULTIES } from './universities.js'
-import { getDeviceId, getPoints, addPoints } from './device.js'
+import { getDeviceId, getPoints, addPoints, markOwned, isOwned, unmarkOwned } from './device.js'
 import PreviewModal from './PreviewModal.jsx'
 import './PreviewModal.css'
 
@@ -242,7 +242,7 @@ export default function ApuntesPage({ onBack }) {
       setFiles(prev => [...prev, { key: data.key, name: data.name, size: data.size, lastModified: new Date() }])
       // Registrar en uploads locales y sumar puntos
       setUploads(prev => ({ ...prev, [data.key]: { uploaderId: deviceId } }))
-      const newPts = addPoints(5)
+      markOwned(data.key); const newPts = addPoints(5)
       setPoints(newPts)
       setPointsAnim('+5 pts')
       setTimeout(() => setPointsAnim(null), 2000)
@@ -257,10 +257,16 @@ export default function ApuntesPage({ onBack }) {
   const deleteFile = async key => {
     if (!window.confirm('¿Eliminar este archivo del vault?')) return
     try {
-      await fetch(`${API}/files`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) })
+      const res = await fetch(`${API}/files`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, uploaderId: deviceId }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
       setFiles(prev => prev.filter(f => f.key !== key))
       setUploads(prev => { const n = { ...prev }; delete n[key]; return n })
-    } catch (err) { alert('Error al eliminar: ' + err.message) }
+      unmarkOwned(key)
+    } catch (err) { alert('No se pudo eliminar: ' + err.message) }
   }
 
   // ── Rate ──────────────────────────────────────────────────────────────
@@ -533,7 +539,7 @@ export default function ApuntesPage({ onBack }) {
                           <button className="ap-dl" onClick={() => window.open(`${API}/download?key=${encodeURIComponent(f.key)}`, '_blank')} title="Descargar">
                             <Download size={16}/>
                           </button>
-                          {uploads[f.key]?.uploaderId === deviceId && (
+                          {isOwned(f.key) && (
                             <button className="ap-del" onClick={() => deleteFile(f.key)} title="Eliminar mi apunte">
                               <Trash2 size={15}/>
                             </button>

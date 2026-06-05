@@ -20,3 +20,23 @@ export function addPoints(n = 5) {
   localStorage.setItem('aa-points', String(next))
   return next
 }
+
+// ── Owned files (persiste entre sesiones) ──────────────────────────────────
+export function markOwned(key) {
+  try {
+    const owned = JSON.parse(localStorage.getItem('aa-owned') ?? '[]')
+    if (!owned.includes(key)) { owned.push(key); localStorage.setItem('aa-owned', JSON.stringify(owned)) }
+  } catch {}
+}
+
+export function isOwned(key) {
+  try { return JSON.parse(localStorage.getItem('aa-owned') ?? '[]').includes(key) }
+  catch { return false }
+}
+
+export function unmarkOwned(key) {
+  try {
+    const owned = JSON.parse(localStorage.getItem('aa-owned') ?? '[]').filter(k => k !== key)
+    localStorage.setItem('aa-owned', JSON.stringify(owned))
+  } catch {}
+}

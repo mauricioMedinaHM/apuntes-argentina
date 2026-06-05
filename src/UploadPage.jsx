@@ -8,7 +8,7 @@ import {
 import { useAuth, SignInButton, SignUpButton } from '@clerk/react'
 import { UNIVERSITIES, FACULTIES } from './universities.js'
 
-const API = 'http://localhost:3002/api'
+const API = import.meta.env.VITE_API_URL ?? 'http://localhost:3002/api'
 
 // UNI_LIST construido desde el inventario completo
 const UNI_LIST = UNIVERSITIES.map(u => ({ id: u.id, name: u.name, full: u.full, province: u.province, type: u.type }))
@@ -383,6 +383,19 @@ export default function UploadPage({ onBack }) {
 
             {/* Universidad */}
             <p className="up-sidebar-label">Universidad</p>
+
+            {/* Mobile: selector nativo OS (mucho más usable para 123 items) */}
+            <select
+              className="up-uni-select"
+              value={uni}
+              onChange={e => { setUni(e.target.value); setCareer(''); setSubject('') }}
+            >
+              {UNI_LIST.map(u => (
+                <option key={u.id} value={u.name}>{u.name} — {u.full}</option>
+              ))}
+            </select>
+
+            {/* Desktop: lista de botones */}
             <div className="up-uni-list">
               {UNI_LIST.map(u => (
                 <button
