@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Shield shape -->
+  <path d="M100 12 L172 40 L172 110 C172 152 136 182 100 194 C64 182 28 152 28 110 L28 40 Z"
+        fill="#1A4B5B" />
+  <path d="M100 22 L162 46 L162 110 C162 147 128 174 100 185 C72 174 38 147 38 110 L38 46 Z"
+        fill="#1F5668" />
+
+  <!-- Stars row (Argentine decoration) -->
+  <g fill="#FCBF49" opacity="0.9">
+    <polygon points="72,62 74.5,69.5 82,69.5 76,74.5 78.5,82 72,77 65.5,82 68,74.5 62,69.5 69.5,69.5" transform="scale(0.7) translate(30,28)"/>
+    <polygon points="72,62 74.5,69.5 82,69.5 76,74.5 78.5,82 72,77 65.5,82 68,74.5 62,69.5 69.5,69.5" transform="scale(0.7) translate(74,28)"/>
+    <polygon points="72,62 74.5,69.5 82,69.5 76,74.5 78.5,82 72,77 65.5,82 68,74.5 62,69.5 69.5,69.5" transform="scale(0.7) translate(118,28)"/>
+  </g>
+
+  <!-- Letters UNE -->
+  <text x="100" y="118" font-family="Georgia, serif" font-size="52" font-weight="bold"
+        fill="white" text-anchor="middle" letter-spacing="2">UNE</text>
+
+  <!-- Full name bottom -->
+  <text x="100" y="142" font-family="Arial, sans-serif" font-size="9" font-weight="600"
+        fill="rgba(255,255,255,0.75)" text-anchor="middle" letter-spacing="0.5">EZEIZA</text>
+
+  <!-- Bottom border line -->
+  <line x1="55" y1="150" x2="145" y2="150" stroke="rgba(255,255,255,0.3)" stroke-width="0.8"/>
+
+  <!-- Year founded note -->
+  <text x="100" y="163" font-family="Arial, sans-serif" font-size="7.5"
+        fill="rgba(255,255,255,0.5)" text-anchor="middle">Est. 2023</text>
+</svg>

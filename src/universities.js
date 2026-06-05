@@ -62,7 +62,7 @@ export const UNIVERSITIES = [
   { id: 'undelta',  name: 'UNDelta',  full: 'Universidad Nacional del Delta',                                      province: 'Buenos Aires',    type: 'nacional',  color: '#1B5A4A', logo: '/logos/undelta.svg'                       },
   { id: 'unp',      name: 'UNP',      full: 'Universidad Nacional de Pilar',                                       province: 'Buenos Aires',    type: 'nacional',  color: '#3A4B7A', logo: '/logos/unp.webp'                       },
   { id: 'unrt',     name: 'UNRT',     full: 'Universidad Nacional de Río Tercero',                                 province: 'Córdoba',         type: 'nacional',  color: '#2D5FA3', logo: '/logos/unrt.svg'                       },
-  { id: 'une',      name: 'UNE',      full: 'Universidad Nacional de Ezeiza',                                      province: 'Buenos Aires',    type: 'nacional',  color: '#1A4B5B', logo: null                       },
+  { id: 'une', name: 'UNE', full: 'Universidad Nacional de Ezeiza', province: 'Buenos Aires', type: 'nacional', color: '#1A4B5B', logo: '/logos/une.svg' },
   { id: 'una_artes',name: 'UNA',      full: 'Universidad Nacional de las Artes',                                   province: 'CABA',            type: 'nacional',  color: '#6B1A4B', logo: '/logos/una.svg'          },
 
   // ════════════════════════════════════════════
