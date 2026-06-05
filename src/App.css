@@ -64,6 +64,74 @@
 
 .nav-github:hover { opacity: 1; }
 
+/* ── Auth buttons en el navbar ── */
+.nav-signin-btn {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.4);
+  color: var(--color-white);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 100px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.nav-signin-btn:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.65);
+}
+
+.nav-signup-btn {
+  display: inline-flex;
+  align-items: center;
+  background: var(--color-white);
+  border: 1px solid var(--color-white);
+  color: var(--color-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 7px 14px;
+  border-radius: 100px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+.nav-signup-btn:hover {
+  background: rgba(255,255,255,0.88);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.22);
+  color: var(--color-white);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 100px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+  min-height: var(--touch-min);
+}
+
+.nav-upload-btn:hover {
+  background: rgba(255,255,255,0.2);
+  border-color: rgba(255,255,255,0.35);
+}
+
 /* Touch target: 44×44px minimum (Apple HIG) */
 @media (max-width: 768px) {
   .nav-github {
@@ -193,9 +261,17 @@
 
 .hero-cta-group {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: 12px;
+}
+
+@media (max-width: 480px) {
+  .hero-cta-group {
+    flex-direction: column;
+  }
 }
 
 .coming-soon-wrapper {
@@ -231,6 +307,40 @@
   opacity: 0.65;
   cursor: not-allowed;
 }
+
+/* ── Cafecito button ── */
+.btn-cafecito {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: rgba(252, 191, 73, 0.12);
+  border: 1px solid rgba(252, 191, 73, 0.35);
+  color: #FCBF49;
+  font-size: 0.92rem;
+  font-weight: 600;
+  min-height: var(--touch-min);
+  padding: 11px 26px;
+  border-radius: 100px;
+  text-decoration: none;
+  transition: all 0.2s;
+  letter-spacing: 0.01em;
+}
+.btn-cafecito:hover {
+  background: rgba(252, 191, 73, 0.22);
+  border-color: rgba(252, 191, 73, 0.6);
+}
+.btn-cafecito-icon { font-size: 1.1rem; line-height: 1; }
+
+.footer-cafecito {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  color: #FCBF49 !important;
+  font-weight: 600 !important;
+  opacity: 1 !important;
+  margin-top: 4px;
+}
+.footer-cafecito:hover { color: #f5d27a !important; }
 
 .coming-soon-label {
   font-size: 0.82rem;
@@ -338,7 +448,7 @@
 }
 
 .why-card--solution h3 { color: var(--color-white); }
-.why-card--solution p  { color: var(--color-bg); } /* crema cálido — contraste limpio sobre navy */
+.why-card--solution p  { color: rgba(255, 255, 255, 0.92); }
 
 .why-card-icon {
   width: 52px;
@@ -426,23 +536,57 @@
   background: var(--color-bg);
 }
 
+/* Filter bar */
+.unis-filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+
+.unis-filter-btn {
+  padding: 7px 18px;
+  border-radius: 999px;
+  border: 1.5px solid var(--color-border);
+  background: var(--color-white);
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+
+.unis-filter-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.unis-filter-btn--active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
 .unis-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  grid-auto-rows: 210px;   /* altura uniforme para todas las filas */
+  gap: 14px;
 }
 
 .uni-card {
   background: var(--color-white);
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  padding: 20px;
+  padding: 16px 12px 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
   cursor: default;
   transition: border-color 0.2s, box-shadow 0.2s;
+  position: relative;
+  overflow: hidden;
 }
 
 .uni-card:hover {
@@ -450,7 +594,7 @@
   box-shadow: 0 4px 16px rgba(35, 53, 92, 0.09);
 }
 
-/* Logo area: subtle tinted background so white logos stay visible */
+/* Logo area */
 .uni-logo-wrap {
   width: 100%;
   height: 52px;
@@ -459,40 +603,84 @@
   justify-content: center;
   flex-shrink: 0;
   padding: 6px 8px;
-  background: var(--color-bg);   /* warm cream — shows up under white logos */
+  background: var(--color-bg);
   border-radius: 8px;
 }
 
 .uni-logo-img {
   max-width: 100%;
-  max-height: 40px;
+  max-height: 38px;
   width: auto;
   height: auto;
   object-fit: contain;
 }
 
 .uni-initial {
-  width: 52px;
-  height: 52px;
-  border-radius: 10px;
+  width: 100%;
+  height: 38px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
   font-family: var(--font-display);
   font-weight: 800;
-  font-size: 0.75rem;
-  letter-spacing: 0.02em;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
   flex-shrink: 0;
 }
 
-/* Full name: dark colour, minimum readable size, never disappears */
+.uni-initial--hidden {
+  display: none;
+}
+
+.uni-abbr {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* Full name — crece para ocupar el espacio restante, badge siempre al fondo */
 .uni-full {
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   font-weight: 500;
-  color: var(--color-primary);   /* #23355C — contrast 10:1 on white */
+  color: var(--color-primary);
   text-align: center;
-  line-height: 1.35;
+  line-height: 1.4;
+  flex: 1;
+}
+
+/* Type badge — siempre al fondo de la card */
+.uni-type-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.03em;
+  margin-top: auto;
+  flex-shrink: 0;
+}
+
+.uni-type-badge--nacional {
+  background: #E8F5E9;
+  color: #2E7D32;
+}
+
+.uni-type-badge--privada {
+  background: #EDE7F6;
+  color: #4527A0;
+}
+
+.uni-type-badge--provincial {
+  background: #E3F2FD;
+  color: #1565C0;
+}
+
+.uni-type-badge--instituto {
+  background: #FFF3E0;
+  color: #E65100;
 }
 
 /* ══════════════════════════════════════════

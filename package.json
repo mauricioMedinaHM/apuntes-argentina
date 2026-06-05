@@ -6,13 +6,25 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "node server.js",
+    "start": "concurrently \"npm run dev\" \"npm run server\""
   },
   "dependencies": {
-    "motion": "^12.40.0",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@clerk/react": "^6.7.3",
+    "compress-pdf": "^0.6.3",
+    "concurrently": "^8.2.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.511.0",
+    "motion": "^12.40.0",
+    "multer": "^1.4.5-lts.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@types/react": "^19.1.5",

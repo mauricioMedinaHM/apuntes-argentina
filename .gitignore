@@ -1,3 +1,20 @@
+# Build output
+dist/
 
-# Social media content — not committed
+# Dependencies
+node_modules/
+
+# Environment variables — contienen credenciales reales
+.env
+.env.local
+
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
+# Social media content — no es parte del proyecto
 social/
+
+# Editor
+.vscode/
+.idea/
