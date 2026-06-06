@@ -116,27 +116,20 @@ function UniLogo({ uni }) {
     )
   }
 
-  const isWebp = uni.logo.endsWith('.webp')
-  const fallbackSrc = isWebp
-    ? uni.logo.replace('.webp', '.svg')   // SVG como fallback si existe
-    : null
-
+  // src directo — todos los archivos en universities.js existen y son válidos
   return (
     <div className="uni-logo-wrap">
-      <picture>
-        {isWebp && <source srcSet={uni.logo} type="image/webp" />}
-        <img
-          src={fallbackSrc || uni.logo}
-          alt={`Logo ${uni.name}`}
-          className="uni-logo-img"
-          loading="lazy"
-          decoding="async"
-          onError={e => {
-            e.currentTarget.closest('.uni-logo-wrap').innerHTML =
-              `<div class="uni-initial" style="background:${uni.color};width:100%;height:38px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:0.72rem;letter-spacing:0.04em">${uni.name}</div>`
-          }}
-        />
-      </picture>
+      <img
+        src={uni.logo}
+        alt={`Logo ${uni.name}`}
+        className="uni-logo-img"
+        loading="lazy"
+        decoding="async"
+        onError={e => {
+          e.currentTarget.closest('.uni-logo-wrap').innerHTML =
+            `<div class="uni-initial" style="background:${uni.color};width:100%;height:38px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:0.72rem;letter-spacing:0.04em">${uni.name}</div>`
+        }}
+      />
     </div>
   )
 }
