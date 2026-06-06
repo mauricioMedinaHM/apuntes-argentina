@@ -51,7 +51,12 @@
 .ap-bar-end {
   display: flex; align-items: center; gap: 10px; flex-shrink: 0;
 }
-.ap-bar-logo { height: 22px; max-width: 72px; object-fit: contain; opacity: 0.85; }
+/* Logo en pill blanco para que se vea sobre el fondo navy */
+.ap-bar-logo {
+  height: 24px; max-width: 80px; object-fit: contain;
+  background: #fff; padding: 4px 8px; border-radius: 8px;
+  box-sizing: content-box;
+}
 
 /* Points badge */
 .ap-points-wrap {

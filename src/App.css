@@ -662,22 +662,23 @@
   box-shadow: 0 4px 16px rgba(35, 53, 92, 0.09);
 }
 
-/* Logo area */
+/* Logo area — fondo blanco para máximo contraste con logos oscuros */
 .uni-logo-wrap {
   width: 100%;
-  height: 52px;
+  height: 56px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  padding: 6px 8px;
-  background: var(--color-bg);
-  border-radius: 8px;
+  padding: 6px 10px;
+  background: #fff;
+  border: 1px solid rgba(35, 53, 92, 0.06);
+  border-radius: 10px;
 }
 
 .uni-logo-img {
   max-width: 100%;
-  max-height: 38px;
+  max-height: 42px;
   width: auto;
   height: auto;
   object-fit: contain;
@@ -1960,14 +1961,15 @@
   .step-number { font-size: 2.8rem; margin-bottom: 12px; }
   .step-icon   { margin-bottom: 10px; }
 
-  /* ── Universities filter bar: scroll horizontal, no wrap ── */
+  /* ── Universities filter bar: scroll horizontal edge-to-edge ── */
   .unis-filter-bar {
     flex-wrap: nowrap;
+    justify-content: flex-start;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    padding-bottom: 4px;
-    margin-bottom: 20px;
+    padding: 0 24px 4px;
+    margin: 0 -24px 20px;
     gap: 8px;
   }
   .unis-filter-bar::-webkit-scrollbar { display: none; }
@@ -1993,12 +1995,14 @@
   .uni-full      { font-size: 0.74rem; line-height: 1.35; }
   .uni-type-badge { font-size: 0.6rem; padding: 2px 6px; }
 
-  /* ── MCP section ── */
+  /* ── MCP section: flow scrolleable desde el inicio ── */
   .mcp-flow {
+    justify-content: flex-start;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    padding-bottom: 4px;
+    padding: 0 20px 4px;
+    margin: 0 -20px;
     flex-wrap: nowrap;
   }
   .mcp-flow::-webkit-scrollbar { display: none; }

@@ -1,5 +1,5 @@
 import { motion, useInView, AnimatePresence } from 'motion/react'
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import {
   BookOpen,
   Search,
@@ -181,6 +181,21 @@ export default function App() {
   const [uniFilter, setUniFilter]   = useState('todas')
   const [navOpen, setNavOpen]       = useState(false)
   const [showAllUnis, setShowAllUnis] = useState(false)
+  const [heroVisible, setHeroVisible] = useState(true)
+  const heroRef = useRef(null)
+
+  // Ocultar el CTA sticky mientras el hero (con su propio CTA) está a la vista
+  useEffect(() => {
+    if (view !== 'landing') return
+    const el = heroRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => setHeroVisible(entry.isIntersecting),
+      { threshold: 0.15 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [view, showSplash])
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768
 
   if (view === 'upload') {
@@ -206,7 +221,7 @@ export default function App() {
 
     <div className="app">
       {/* ── HERO ── */}
-      <header className="hero">
+      <header className="hero" ref={heroRef}>
         {/* Sol de Mayo watermark — image-led hero (Impeccable: Brand mode) */}
         <div className="hero-sol-watermark" aria-hidden="true" />
         <nav className="nav">
@@ -639,12 +654,22 @@ export default function App() {
         </div>
       </section>
 
-      {/* ── MOBILE STICKY CTA (skill: bottom navigation clarity + safe areas) ── */}
-      <div className="mobile-cta-bar">
-        <button className="btn-primary" onClick={() => setView('apuntes')}>
-          Ir a los apuntes <ArrowRight size={18} />
-        </button>
-      </div>
+      {/* ── MOBILE STICKY CTA — solo cuando el hero ya no está visible ── */}
+      <AnimatePresence>
+        {!heroVisible && (
+          <motion.div
+            className="mobile-cta-bar"
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <button className="btn-primary" onClick={() => setView('apuntes')}>
+              Ir a los apuntes <ArrowRight size={18} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── FOOTER ── */}
       <footer className="footer">
