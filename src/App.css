@@ -39,6 +39,7 @@
   padding: max(20px, calc(var(--safe-top) + 12px)) max(40px, calc(var(--safe-right) + 24px)) 20px max(40px, calc(var(--safe-left) + 24px));
   position: relative;
   z-index: 10;
+  overflow: visible; /* permite que el drawer mobile salga del nav */
 }
 
 .nav-logo {
@@ -172,13 +173,17 @@
   top: 100%;
   left: 0;
   right: 0;
-  background: var(--color-primary);
-  border-top: 1px solid rgba(255,255,255,0.1);
+  background: rgba(20, 38, 75, 0.98); /* más oscuro que el hero para distinguirlo */
+  border-top: 1px solid rgba(255,255,255,0.15);
+  border-bottom: 2px solid rgba(255,255,255,0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   display: flex;
   flex-direction: column;
-  z-index: 100;
-  padding: 8px 20px 16px;
+  z-index: 200;
+  padding: 8px 20px 20px;
   gap: 2px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.35);
 }
 
 .nav-drawer-item {
@@ -1160,6 +1165,7 @@
 ══════════════════════════════════════════ */
 .section-vault {
   background: var(--color-bg);
+  overflow: hidden; /* evita que el vault-scene desborde en mobile */
 }
 
 .vault-scene {
@@ -1888,6 +1894,36 @@
   50%       { opacity: 1;   }
 }
 
+
+/* ── Ver más universidades (mobile) ── */
+.unis-show-more-wrap {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .unis-show-more-wrap {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+  }
+  .unis-show-more-btn {
+    padding: 13px 28px;
+    background: transparent;
+    border: 1.5px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--color-primary);
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.18s;
+    min-height: var(--touch-min);
+  }
+  .unis-show-more-btn:hover {
+    border-color: var(--color-primary);
+    background: rgba(35,53,92,0.04);
+  }
+}
 /* ══════════════════════════════════════════
    RESPONSIVE — 768px (tablets + phones)
 ══════════════════════════════════════════ */
@@ -1918,9 +1954,11 @@
   .why-cards { grid-template-columns: 1fr; gap: 14px; }
   .why-card  { padding: 28px 22px; }
 
-  /* ── Steps ── */
-  .steps     { grid-template-columns: 1fr; gap: 12px; }
-  .step-card { padding: 28px 22px; }
+  /* ── Steps: reducir padding para no generar espacio en blanco ── */
+  .steps     { grid-template-columns: 1fr; gap: 10px; }
+  .step-card { padding: 22px 20px; }
+  .step-number { font-size: 2.8rem; margin-bottom: 12px; }
+  .step-icon   { margin-bottom: 10px; }
 
   /* ── Universities filter bar: scroll horizontal, no wrap ── */
   .unis-filter-bar {
@@ -1939,14 +1977,14 @@
   .unis-grid {
     grid-template-columns: 1fr 1fr;
     grid-auto-rows: auto;
-    gap: 10px;
+    gap: 8px;
   }
 
   .uni-card {
     height: auto;
-    min-height: 160px;
-    padding: 14px 10px 12px;
-    gap: 8px;
+    min-height: 0;
+    padding: 12px 10px 10px;
+    gap: 6px;
   }
 
   .uni-logo-wrap { height: 46px; padding: 5px; }
@@ -1974,12 +2012,12 @@
     -webkit-overflow-scrolling: touch;
   }
 
-  /* ── Vault animation ── */
+  /* ── Vault animation: más compacta en mobile ── */
   .vault-scene {
     flex-direction: column;
     align-items: center;
-    gap: 16px;
-    padding: 24px 16px 28px;
+    gap: 12px;
+    padding: 20px 14px 22px;
     min-height: unset;
   }
   .vault-left    { flex: unset; width: 100%; justify-content: center; min-height: unset; }
@@ -1990,6 +2028,7 @@
   .vault-interior, .vault-door { width: 100%; }
 
   /* ── Mock apuntes ── */
+  .mock-app           { min-height: 320px; } /* reducir del 460px desktop */
   .mock-chrome-dots   { display: none; }
   .mock-chrome-spacer { display: none; }
   .mock-chrome        { padding: 10px 16px; justify-content: center; }

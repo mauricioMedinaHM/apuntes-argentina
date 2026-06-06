@@ -2,14 +2,17 @@
    UPLOAD PAGE
 ══════════════════════════════════════════ */
 .up-root {
+  min-height: 100dvh;
   min-height: 100vh;
   background: var(--color-bg);
   display: flex;
   flex-direction: column;
 }
 
-/* ── Auth gate ── */
+/* ── Auth gate: ocupa toda la pantalla y centra la card ── */
 .up-auth-gate {
+  flex: 1;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;

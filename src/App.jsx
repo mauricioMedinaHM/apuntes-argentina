@@ -81,7 +81,8 @@ const STEPS = [
 
 function FadeIn({ children, delay = 0, direction = 'up', className = '' }) {
   const ref = useRef(null)
-  const inView = useInView(ref, { once: true, margin: '-80px' })
+  const isMobileView = typeof window !== 'undefined' && window.innerWidth <= 768
+  const inView = useInView(ref, { once: true, margin: isMobileView ? '0px' : '-80px' })
 
   const variants = {
     hidden: {
@@ -179,6 +180,8 @@ export default function App() {
   const [view, setView]             = useState('landing') // 'landing' | 'upload' | 'apuntes'
   const [uniFilter, setUniFilter]   = useState('todas')
   const [navOpen, setNavOpen]       = useState(false)
+  const [showAllUnis, setShowAllUnis] = useState(false)
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768
 
   if (view === 'upload') {
     return <UploadPage onBack={() => setView('landing')} />
@@ -233,28 +236,28 @@ export default function App() {
               <span className={`nav-hamburger-line ${navOpen ? 'nav-hamburger-line--open' : ''}`} />
             </button>
           </div>
-        </nav>
 
-        {/* Mobile drawer */}
-        <AnimatePresence>
-          {navOpen && (
-            <motion.div
-              className="nav-drawer"
-              initial={{ opacity: 0, y: -12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.22 }}
-            >
-              <div className="nav-drawer-auth"><NavAuth /></div>
-              <button className="nav-drawer-item" onClick={() => { setView('upload'); setNavOpen(false) }}>
-                <Upload size={18} /> Subir apunte
-              </button>
-              <a href="https://github.com/mauricioMedinaHM/apuntes-argentina" target="_blank" rel="noopener noreferrer" className="nav-drawer-item" onClick={() => setNavOpen(false)}>
-                <Github size={18} /> GitHub
-              </a>
-            </motion.div>
-          )}
-        </AnimatePresence>
+          {/* Mobile drawer — hijo del nav para que top:100% quede bajo la barra */}
+          <AnimatePresence>
+            {navOpen && (
+              <motion.div
+                className="nav-drawer"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
+              >
+                <div className="nav-drawer-auth"><NavAuth /></div>
+                <button className="nav-drawer-item" onClick={() => { setView('upload'); setNavOpen(false) }}>
+                  <Upload size={18} /> Subir apunte
+                </button>
+                <a href="https://github.com/mauricioMedinaHM/apuntes-argentina" target="_blank" rel="noopener noreferrer" className="nav-drawer-item" onClick={() => setNavOpen(false)}>
+                  <Github size={18} /> GitHub
+                </a>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </nav>
 
         <div className="hero-content">
           <motion.div
@@ -477,12 +480,23 @@ export default function App() {
           </FadeIn>
 
           <div className="unis-grid">
-            {UNIVERSITIES
-              .filter(u => uniFilter === 'todas' || u.type === uniFilter)
-              .map((uni, i) => (
+            {(() => {
+              const filtered = UNIVERSITIES.filter(u => uniFilter === 'todas' || u.type === uniFilter)
+              const visible  = (isMobile && !showAllUnis) ? filtered.slice(0, 12) : filtered
+              return visible.map((uni, i) => (
                 <UniversityCard key={uni.id} uni={uni} delay={i * 0.03} />
-              ))}
+              ))
+            })()}
           </div>
+          {isMobile && !showAllUnis && (
+            <FadeIn delay={0.1}>
+              <div className="unis-show-more-wrap">
+                <button className="unis-show-more-btn" onClick={() => setShowAllUnis(true)}>
+                  Ver todas las universidades ({UNIVERSITIES.filter(u => uniFilter === 'todas' || u.type === uniFilter).length})
+                </button>
+              </div>
+            </FadeIn>
+          )}
         </div>
       </section>
 
