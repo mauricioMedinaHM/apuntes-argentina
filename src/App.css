@@ -1896,33 +1896,69 @@
 }
 
 
-/* ── Ver más universidades (mobile) ── */
-.unis-show-more-wrap {
-  display: none;
+/* ── Grid wrapper colapsable (3 filas) ── */
+.unis-grid-wrap {
+  position: relative;
 }
 
+/* Colapsado: limita a 3 filas en desktop (210px × 3 + 14px gap × 2 = 658px) */
+.unis-grid-wrap--collapsed {
+  max-height: 658px;
+  overflow: hidden;
+}
+
+/* Gradiente fade-out en la parte inferior cuando está colapsado */
+.unis-fade-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 160px;
+  background: linear-gradient(to bottom, transparent 0%, var(--color-bg, #F5F0EB) 90%);
+  pointer-events: none;
+}
+
+/* Botón expandir/colapsar — siempre visible */
+.unis-expand-wrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+}
+
+.unis-expand-btn {
+  padding: 13px 32px;
+  background: var(--color-white);
+  border: 1.5px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  min-height: var(--touch-min);
+  box-shadow: 0 2px 8px rgba(35,53,92,0.07);
+}
+
+.unis-expand-btn:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: white;
+  box-shadow: 0 4px 16px rgba(35,53,92,0.18);
+}
+
+/* Mobile: 3 filas de tarjetas auto-height ≈ 155px cada una + gaps */
 @media (max-width: 768px) {
-  .unis-show-more-wrap {
-    display: flex;
-    justify-content: center;
-    margin-top: 20px;
+  .unis-grid-wrap--collapsed {
+    max-height: 510px; /* 3 × ~160px + gaps */
   }
-  .unis-show-more-btn {
-    padding: 13px 28px;
-    background: transparent;
-    border: 1.5px solid var(--color-border);
-    border-radius: 999px;
-    font-size: 0.88rem;
-    font-weight: 600;
-    color: var(--color-primary);
-    cursor: pointer;
-    font-family: inherit;
-    transition: all 0.18s;
-    min-height: var(--touch-min);
+  .unis-fade-overlay {
+    height: 120px;
+    background: linear-gradient(to bottom, transparent 0%, var(--color-bg, #F5F0EB) 88%);
   }
-  .unis-show-more-btn:hover {
-    border-color: var(--color-primary);
-    background: rgba(35,53,92,0.04);
+  .unis-expand-btn {
+    font-size: 0.85rem;
+    padding: 11px 24px;
   }
 }
 /* ══════════════════════════════════════════

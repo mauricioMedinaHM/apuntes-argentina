@@ -479,7 +479,7 @@ export default function App() {
                 <button
                   key={f.key}
                   className={`unis-filter-btn ${uniFilter === f.key ? 'unis-filter-btn--active' : ''}`}
-                  onClick={() => setUniFilter(f.key)}
+                  onClick={() => { setUniFilter(f.key); setShowAllUnis(false) }}
                 >
                   {f.label}
                 </button>
@@ -487,24 +487,27 @@ export default function App() {
             </div>
           </FadeIn>
 
-          <div className="unis-grid">
-            {(() => {
-              const filtered = UNIVERSITIES.filter(u => uniFilter === 'todas' || u.type === uniFilter)
-              const visible  = (isMobile && !showAllUnis) ? filtered.slice(0, 12) : filtered
-              return visible.map((uni, i) => (
-                <UniversityCard key={uni.id} uni={uni} delay={i * 0.03} />
-              ))
-            })()}
+          <div className={`unis-grid-wrap ${showAllUnis ? '' : 'unis-grid-wrap--collapsed'}`}>
+            <div className="unis-grid">
+              {UNIVERSITIES
+                .filter(u => uniFilter === 'todas' || u.type === uniFilter)
+                .map((uni, i) => (
+                  <UniversityCard key={uni.id} uni={uni} delay={i * 0.03} />
+                ))}
+            </div>
+            {!showAllUnis && <div className="unis-fade-overlay" aria-hidden="true" />}
           </div>
-          {isMobile && !showAllUnis && (
-            <FadeIn delay={0.1}>
-              <div className="unis-show-more-wrap">
-                <button className="unis-show-more-btn" onClick={() => setShowAllUnis(true)}>
-                  Ver todas las universidades ({UNIVERSITIES.filter(u => uniFilter === 'todas' || u.type === uniFilter).length})
-                </button>
-              </div>
-            </FadeIn>
-          )}
+
+          <div className="unis-expand-wrap">
+            <button
+              className="unis-expand-btn"
+              onClick={() => setShowAllUnis(v => !v)}
+            >
+              {showAllUnis
+                ? 'Ver menos'
+                : `Ver todas las universidades (${UNIVERSITIES.filter(u => uniFilter === 'todas' || u.type === uniFilter).length})`}
+            </button>
+          </div>
         </div>
       </section>
 
