@@ -7,7 +7,12 @@
 //   CF_R2_ENDPOINT, ALLOWED_ORIGINS, UPLOAD_PORT
 //   CLERK_SECRET_KEY, VITE_CLERK_PUBLISHABLE_KEY (para auth backend)
 
-import 'dotenv/config'
+// dotenv solo en local (Vercel inyecta env vars directamente)
+if (!process.env.VERCEL) {
+  const { config } = await import('dotenv')
+  config()
+}
+
 import express        from 'express'
 import multer         from 'multer'
 import cors           from 'cors'
@@ -19,19 +24,22 @@ import {
   S3Client, PutObjectCommand, ListObjectsV2Command,
   DeleteObjectCommand, GetObjectCommand,
 } from '@aws-sdk/client-s3'
-// compress-pdf usa Ghostscript (child_process) — no disponible en Vercel serverless
-const IS_SERVERLESS = !!process.env.VERCEL
-let compressPdf = null
-if (!IS_SERVERLESS) {
-  const mod = await import('compress-pdf')
-  compressPdf = mod.compress
-}
 import sharp   from 'sharp'
 import JSZip   from 'jszip'
 import { writeFile, unlink } from 'fs/promises'
 import { join }       from 'path'
 import { tmpdir }     from 'os'
 import { randomBytes } from 'crypto'
+
+// compress-pdf usa Ghostscript — no disponible en Vercel serverless
+const IS_SERVERLESS = !!process.env.VERCEL
+let compressPdf = null
+if (!IS_SERVERLESS) {
+  try {
+    const mod = await import('compress-pdf')
+    compressPdf = mod.compress
+  } catch {}
+}
 
 const PORT   = parseInt(process.env.UPLOAD_PORT ?? '3002', 10)
 const BUCKET = process.env.CF_R2_BUCKET_NAME
