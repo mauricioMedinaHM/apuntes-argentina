@@ -1,5 +1,5 @@
 import { motion, useInView, AnimatePresence } from 'motion/react'
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import {
   BookOpen,
   Search,
@@ -20,25 +20,17 @@ import {
   RotateCcw,
   Cpu,
 } from 'lucide-react'
+
+import { SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react'
 import VaultAnimation from './VaultAnimation'
 import MockApuntes from './MockApuntes'
 import SplashScreen, { shouldShowSplash } from './SplashScreen'
+import UploadPage from './UploadPage'
+import ApuntesPage from './ApuntesPage'
+import { UNIVERSITIES } from './universities.js'
 import './App.css'
-
-const UNIVERSITIES = [
-  { id: 'uba',    name: 'UBA',   full: 'Universidad de Buenos Aires',        color: '#23355C', logo: '/logos/uba.svg'          },
-  { id: 'unc',    name: 'UNC',   full: 'Universidad Nacional de Córdoba',     color: '#2D5FA3', logo: '/logos/unc.png'           },
-  { id: 'unlp',   name: 'UNLP',  full: 'Universidad Nacional de La Plata',    color: '#003087', logo: '/logos/unlp.svg'          },
-  { id: 'utn',    name: 'UTN',   full: 'Universidad Tecnológica Nacional',    color: '#C8102E', logo: '/logos/utn.png'           },
-  { id: 'unr',    name: 'UNR',   full: 'Universidad Nacional de Rosario',     color: '#005B5E', logo: '/logos/unr.png'           },
-  { id: 'uncuyo', name: 'UNCu',  full: 'Universidad Nacional de Cuyo',        color: '#6B2D8B', logo: '/logos/uncuyo.png'        },
-  { id: 'unne',   name: 'UNNE',  full: 'Univ. Nacional del Nordeste',         color: '#1B6CA8', logo: '/logos/unne_new.png'      },
-  { id: 'unsa',   name: 'UNSA',  full: 'Univ. Nacional de Salta',             color: '#8B0000', logo: '/logos/unsa.png'          },
-  { id: 'unt',    name: 'UNT',   full: 'Univ. Nacional de Tucumán',           color: '#1A5C38', logo: '/logos/unt.png'           },
-  { id: 'unmdp',  name: 'UNMdP', full: 'Univ. Nacional de Mar del Plata',     color: '#004B87', logo: '/logos/unmdp.svg'         },
-  { id: 'unsj',   name: 'UNSJ',  full: 'Univ. Nacional de San Juan',          color: '#5C3317', logo: '/logos/unsj_footer.png'   },
-  { id: 'unlam',  name: 'UNLaM', full: 'Univ. Nacional de La Matanza',        color: '#2C6B2F', logo: '/logos/unlam.png'         },
-]
+import './UploadPage.css'
+import './ApuntesPage.css'
 
 const MCP_TOOLS = [
   { icon: MapPin,      fn: 'list_universities', desc: 'Devuelve las universidades disponibles en el vault.' },
@@ -89,7 +81,8 @@ const STEPS = [
 
 function FadeIn({ children, delay = 0, direction = 'up', className = '' }) {
   const ref = useRef(null)
-  const inView = useInView(ref, { once: true, margin: '-80px' })
+  const isMobileView = typeof window !== 'undefined' && window.innerWidth <= 768
+  const inView = useInView(ref, { once: true, margin: isMobileView ? '0px' : '-80px' })
 
   const variants = {
     hidden: {
@@ -114,6 +107,33 @@ function FadeIn({ children, delay = 0, direction = 'up', className = '' }) {
   )
 }
 
+function UniLogo({ uni }) {
+  if (!uni.logo) {
+    return (
+      <div className="uni-logo-wrap">
+        <div className="uni-initial" style={{ background: uni.color }}>{uni.name}</div>
+      </div>
+    )
+  }
+
+  // src directo — todos los archivos en universities.js existen y son válidos
+  return (
+    <div className="uni-logo-wrap">
+      <img
+        src={uni.logo}
+        alt={`Logo ${uni.name}`}
+        className="uni-logo-img"
+        loading="lazy"
+        decoding="async"
+        onError={e => {
+          e.currentTarget.closest('.uni-logo-wrap').innerHTML =
+            `<div class="uni-initial" style="background:${uni.color};width:100%;height:38px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:0.72rem;letter-spacing:0.04em">${uni.name}</div>`
+        }}
+      />
+    </div>
+  )
+}
+
 function UniversityCard({ uni, delay }) {
   return (
     <FadeIn delay={delay}>
@@ -122,32 +142,70 @@ function UniversityCard({ uni, delay }) {
         whileHover={{ y: -4, boxShadow: '0 8px 24px rgba(35,53,92,0.15)' }}
         transition={{ duration: 0.2 }}
       >
-        {uni.logo ? (
-          <div className="uni-logo-wrap">
-            <img
-              src={uni.logo}
-              alt={`Logo ${uni.name}`}
-              className="uni-logo-img"
-              loading="lazy"
-            />
-          </div>
-        ) : (
-          <div className="uni-initial" style={{ background: uni.color }}>
-            {uni.name}
-          </div>
-        )}
+        <UniLogo uni={uni} />
+        <span className="uni-abbr">{uni.name}</span>
         <span className="uni-full">{uni.full}</span>
+        <span className={`uni-type-badge uni-type-badge--${uni.type}`}>
+          {uni.type === 'nacional' ? 'Nacional' : uni.type === 'utn' ? 'UTN Regional' : uni.type === 'privada' ? 'Privada' : uni.type === 'provincial' ? 'Provincial' : 'Instituto'}
+        </span>
       </motion.div>
     </FadeIn>
   )
 }
 
+function NavAuth() {
+  const { isSignedIn } = useAuth()
+  if (isSignedIn) return <UserButton />
+  return (
+    <>
+      <SignInButton mode="modal">
+        <button className="nav-signin-btn">Iniciar sesión</button>
+      </SignInButton>
+      <SignUpButton mode="modal">
+        <button className="nav-signup-btn">Registrarse</button>
+      </SignUpButton>
+    </>
+  )
+}
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(shouldShowSplash)
+  const [view, setView]             = useState('landing') // 'landing' | 'upload' | 'apuntes'
+  const [uniFilter, setUniFilter]   = useState('todas')
+  const [navOpen, setNavOpen]       = useState(false)
+  const [showAllUnis, setShowAllUnis] = useState(false)
+  const [heroVisible, setHeroVisible] = useState(true)
+  const heroRef = useRef(null)
+
+  // Ocultar el CTA sticky mientras el hero (con su propio CTA) está a la vista
+  useEffect(() => {
+    if (view !== 'landing') return
+    const el = heroRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => setHeroVisible(entry.isIntersecting),
+      { threshold: 0.15 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [view, showSplash])
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768
+
+  if (view === 'upload') {
+    return <UploadPage onBack={() => setView('landing')} />
+  }
+
+  if (view === 'apuntes') {
+    return (
+      <ApuntesPage
+        onBack={() => setView('landing')}
+        onUpload={() => setView('upload')}
+      />
+    )
+  }
 
   return (
     <>
-      {/* Splash — only on first visit per session, exits by sliding up */}
       <AnimatePresence>
         {showSplash && (
           <SplashScreen key="splash" onDone={() => setShowSplash(false)} />
@@ -156,7 +214,7 @@ export default function App() {
 
     <div className="app">
       {/* ── HERO ── */}
-      <header className="hero">
+      <header className="hero" ref={heroRef}>
         {/* Sol de Mayo watermark — image-led hero (Impeccable: Brand mode) */}
         <div className="hero-sol-watermark" aria-hidden="true" />
         <nav className="nav">
@@ -164,15 +222,49 @@ export default function App() {
             <BookMarked size={24} strokeWidth={2} />
             <span>ApuntesArgentina</span>
           </div>
-          <a
-            href="https://github.com/mauricioMedinaHM/apuntes-argentina"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="nav-github"
-          >
-            <Github size={18} />
-            GitHub
-          </a>
+
+          {/* Desktop actions */}
+          <div className="nav-actions nav-actions--desktop">
+            <button className="nav-upload-btn" onClick={() => setView('upload')}>
+              <Upload size={15} />
+              Subir apunte
+            </button>
+            <a href="https://github.com/mauricioMedinaHM/apuntes-argentina" target="_blank" rel="noopener noreferrer" className="nav-github">
+              <Github size={18} />
+              GitHub
+            </a>
+            <NavAuth />
+          </div>
+
+          {/* Mobile: auth icon + hamburger */}
+          <div className="nav-actions nav-actions--mobile">
+            <button className="nav-hamburger" onClick={() => setNavOpen(o => !o)} aria-label="Menú">
+              <span className={`nav-hamburger-line ${navOpen ? 'nav-hamburger-line--open' : ''}`} />
+              <span className={`nav-hamburger-line ${navOpen ? 'nav-hamburger-line--open' : ''}`} />
+              <span className={`nav-hamburger-line ${navOpen ? 'nav-hamburger-line--open' : ''}`} />
+            </button>
+          </div>
+
+          {/* Mobile drawer — hijo del nav para que top:100% quede bajo la barra */}
+          <AnimatePresence>
+            {navOpen && (
+              <motion.div
+                className="nav-drawer"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
+              >
+                <div className="nav-drawer-auth"><NavAuth /></div>
+                <button className="nav-drawer-item" onClick={() => { setView('upload'); setNavOpen(false) }}>
+                  <Upload size={18} /> Subir apunte
+                </button>
+                <a href="https://github.com/mauricioMedinaHM/apuntes-argentina" target="_blank" rel="noopener noreferrer" className="nav-drawer-item" onClick={() => setNavOpen(false)}>
+                  <Github size={18} /> GitHub
+                </a>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </nav>
 
         <div className="hero-content">
@@ -212,14 +304,26 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div className="coming-soon-wrapper">
-              <button className="btn-primary" disabled>
-                Ir a los apuntes <ArrowRight size={18} />
-              </button>
-              <span className="coming-soon-label">
-                Próximamente — estamos buscando financiamiento para el vault
-              </span>
-            </div>
+            <motion.button
+              className="btn-primary"
+              onClick={() => setView('apuntes')}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+            >
+              Ir a los apuntes <ArrowRight size={18} />
+            </motion.button>
+
+            <motion.a
+              href="https://cafecito.app/apuntesargentina"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-cafecito"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+            >
+              <span className="btn-cafecito-icon">☕</span>
+              Invitame un café
+            </motion.a>
           </motion.div>
         </div>
 
@@ -357,15 +461,54 @@ export default function App() {
           </FadeIn>
           <FadeIn delay={0.1}>
             <p className="section-subtitle">
-              Arrancamos con las universidades públicas más grandes del país.
+              {UNIVERSITIES.filter(u => u.type === 'nacional').length} nacionales,{' '}
+              {UNIVERSITIES.filter(u => u.type === 'utn').length} facultades regionales UTN,{' '}
+              {UNIVERSITIES.filter(u => u.type === 'privada').length} privadas y{' '}
+              {UNIVERSITIES.filter(u => u.type === 'provincial' || u.type === 'instituto').length} provinciales/institutos.
               Si la tuya no está, podés agregarla.
             </p>
           </FadeIn>
 
-          <div className="unis-grid">
-            {UNIVERSITIES.map((uni, i) => (
-              <UniversityCard key={uni.id} uni={uni} delay={i * 0.05} />
-            ))}
+          <FadeIn delay={0.15}>
+            <div className="unis-filter-bar">
+              {[
+                { key: 'todas',      label: `Todas (${UNIVERSITIES.length})` },
+                { key: 'nacional',   label: `Nacionales (${UNIVERSITIES.filter(u => u.type === 'nacional').length})` },
+                { key: 'utn',        label: `UTN Regionales (${UNIVERSITIES.filter(u => u.type === 'utn').length})` },
+                { key: 'privada',    label: `Privadas (${UNIVERSITIES.filter(u => u.type === 'privada').length})` },
+                { key: 'provincial', label: `Provinciales (${UNIVERSITIES.filter(u => u.type === 'provincial').length})` },
+              ].map(f => (
+                <button
+                  key={f.key}
+                  className={`unis-filter-btn ${uniFilter === f.key ? 'unis-filter-btn--active' : ''}`}
+                  onClick={() => { setUniFilter(f.key); setShowAllUnis(false) }}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </FadeIn>
+
+          <div className={`unis-grid-wrap ${showAllUnis ? '' : 'unis-grid-wrap--collapsed'}`}>
+            <div className="unis-grid">
+              {UNIVERSITIES
+                .filter(u => uniFilter === 'todas' || u.type === uniFilter)
+                .map((uni, i) => (
+                  <UniversityCard key={uni.id} uni={uni} delay={i * 0.03} />
+                ))}
+            </div>
+            {!showAllUnis && <div className="unis-fade-overlay" aria-hidden="true" />}
+          </div>
+
+          <div className="unis-expand-wrap">
+            <button
+              className="unis-expand-btn"
+              onClick={() => setShowAllUnis(v => !v)}
+            >
+              {showAllUnis
+                ? 'Ver menos'
+                : `Ver todas las universidades (${UNIVERSITIES.filter(u => uniFilter === 'todas' || u.type === uniFilter).length})`}
+            </button>
           </div>
         </div>
       </section>
@@ -509,12 +652,22 @@ export default function App() {
         </div>
       </section>
 
-      {/* ── MOBILE STICKY CTA (skill: bottom navigation clarity + safe areas) ── */}
-      <div className="mobile-cta-bar">
-        <button className="btn-primary" disabled>
-          Ir a los apuntes <ArrowRight size={18} />
-        </button>
-      </div>
+      {/* ── MOBILE STICKY CTA — solo cuando el hero ya no está visible ── */}
+      <AnimatePresence>
+        {!heroVisible && (
+          <motion.div
+            className="mobile-cta-bar"
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <button className="btn-primary" onClick={() => setView('apuntes')}>
+              Ir a los apuntes <ArrowRight size={18} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── FOOTER ── */}
       <footer className="footer">
@@ -565,6 +718,14 @@ export default function App() {
               <a href="https://github.com/mauricioMedinaHM/apuntes-argentina" target="_blank" rel="noopener noreferrer">GitHub</a>
               <a href="https://github.com/mauricioMedinaHM/apuntes-argentina/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Cómo contribuir</a>
               <a href="mailto:hh.mauri2190@gmail.com">Contacto</a>
+              <a
+                href="https://cafecito.app/apuntesargentina"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="footer-cafecito"
+              >
+                ☕ Invitame un café
+              </a>
             </nav>
           </div>
 

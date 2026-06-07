@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Capa_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 700 140">
+  <!-- Generator: Adobe Illustrator 29.8.1, SVG Export Plug-In . SVG Version: 2.1.1 Build 2)  -->
+  <defs>
+    <style>
+      .st0, .st1, .st2 {
+        fill: #1d1d1b;
+      }
+
+      .st3 {
+        fill: #3276b7;
+        font-family: ArialMT, Arial;
+        font-size: 89.15px;
+      }
+
+      .st1 {
+        font-family: Arial-Black, Arial;
+        font-size: 88.36px;
+        font-weight: 800;
+      }
+
+      .st2 {
+        fill-rule: evenodd;
+      }
+    </style>
+  </defs>
+  <text class="st1" transform="translate(105.46 102.27) scale(.99 1)"><tspan x="0" y="0">UTN</tspan></text>
+  <text class="st3" transform="translate(330.87 101.92)"><tspan x="0" y="0">La Plata</tspan></text>
+  <g>
+    <rect class="st0" x="45.79" y="64.04" width="54.86" height="12.53"/>
+    <path class="st2" d="M90.05,39.08c-.33,9-7.78,16.34-16.97,16.34-9.17.05-16.7-7.28-17.02-16.34h-11.55c0,14.83,13.14,26.97,29.24,26.97s29.3-12.14,29.3-26.97h-13Z"/>
+    <rect class="st0" x="67.66" y="39.25" width="12.53" height="61.27"/>
+    <path d="M73.61,74.43c-16.12,0-29.2,12.36-29.28,27.64v.14h12.22s0-.06,0-.09c.04-9.69,7.66-17.54,17.06-17.54s17.01,7.85,17.06,17.54v.08h12.22v-.13c-.07-15.29-13.15-27.65-29.28-27.65Z"/>
+  </g>
+  <rect class="st0" x="315.45" y="63.48" width="13.64" height="13.64"/>
+</svg>
