@@ -515,8 +515,9 @@
   border-color: transparent;
 }
 
-.why-card--solution h3 { color: var(--color-white); }
-.why-card--solution p  { color: rgba(255, 255, 255, 1); }
+/* .why-card.why-card--solution gana en especificidad sobre la regla .why-card p de abajo */
+.why-card.why-card--solution h3 { color: var(--color-white); }
+.why-card.why-card--solution p  { color: #ffffff; }
 
 .why-card-icon {
   width: 52px;
