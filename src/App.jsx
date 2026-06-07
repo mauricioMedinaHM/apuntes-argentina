@@ -342,7 +342,7 @@ export default function App() {
           </FadeIn>
           <FadeIn delay={0.1}>
             <p className="section-subtitle">
-              Los apuntes de las universidades públicas argentinas están desperdigados.
+              Los apuntes de las universidades argentinas están desperdigados.
               Grupos de WhatsApp que se pierden, Google Drives privados que no encontrás,
               compañeros que guardan todo para ellos mismos. La información existe,
               pero nadie la puede encontrar.
@@ -677,7 +677,7 @@ export default function App() {
               </div>
               <p className="footer-desc">
                 Un proyecto abierto, sin fines de lucro, hecho por y para
-                estudiantes de universidades públicas argentinas.
+                estudiantes de todas las universidades argentinas.
               </p>
               <div className="footer-social">
                 <a
