@@ -42,3 +42,4 @@ yarn.lock
 # Local agent tooling
 .atl
 CLAUDE.md
+.vercel
