@@ -233,35 +233,64 @@ export default function ApuntesPage({ onBack }) {
     setQueue(prev => [...prev, ...entries])
   }
 
+  // Lee error JSON, o da mensaje claro si el server/proxy devolvió texto (ej. 413 de Vercel)
+  const readErr = async res => {
+    const txt = await res.text()
+    try { return JSON.parse(txt).error || txt }
+    catch { return res.status === 413 ? 'El archivo es demasiado grande.' : `Error ${res.status}. Intentá de nuevo.` }
+  }
+
   const uploadOne = async entry => {
     if (!isSignedIn) {
       setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'error', error: 'Iniciá sesión para subir apuntes' } : e))
       return
     }
-    setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'uploading', progress: 10 } : e))
-    const fd = new FormData()
-    fd.append('file', entry.file)
-    fd.append('university', uni)
-    fd.append('career', career)
-    fd.append('subject', subject)
-    fd.append('uploaderId', deviceId)
+    if (entry.file.size > 50 * 1024 * 1024) {
+      setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'error', error: 'Máximo 50 MB por archivo' } : e))
+      return
+    }
+    setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'uploading', progress: 8 } : e))
+    const setProg = p => setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, progress: p } : e))
     try {
       const token = await getToken()
-      const tick = setInterval(() => setQueue(prev => prev.map(e => e.id === entry.id && e.progress < 80 ? { ...e, progress: e.progress + 20 } : e)), 400)
-      const res = await fetch(`${API}/upload`, {
+      const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
+
+      // Paso 1: URL prefirmada (request chico, sin el archivo)
+      const urlRes = await fetch(`${API}/upload-url`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: fd,
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ university: uni, career, subject, filename: entry.file.name, size: entry.file.size }),
       })
-      clearInterval(tick)
-      if (!res.ok) throw new Error((await res.json()).error)
-      const data = await res.json()
+      if (!urlRes.ok) throw new Error(await readErr(urlRes))
+      const { uploadUrl, key, name, contentType } = await urlRes.json()
+      setProg(20)
+
+      // Paso 2: PUT directo a R2 (con progreso real)
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('PUT', uploadUrl)
+        xhr.setRequestHeader('Content-Type', contentType)
+        xhr.upload.onprogress = ev => { if (ev.lengthComputable) setProg(20 + Math.round((ev.loaded / ev.total) * 70)) }
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error('No se pudo subir el archivo al almacenamiento'))
+        xhr.onerror = () => reject(new Error('Error de red al subir el archivo'))
+        xhr.send(entry.file)
+      })
+      setProg(92)
+
+      // Paso 3: confirmar y registrar
+      const confRes = await fetch(`${API}/confirm-upload`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      })
+      if (!confRes.ok) throw new Error(await readErr(confRes))
+      const data = await confRes.json()
+
       setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'done', progress: 100 } : e))
-      setFiles(prev => [...prev, { key: data.key, name: data.name, size: data.size, lastModified: new Date() }])
-      // Registrar en uploads locales y sumar puntos
+      setFiles(prev => [...prev, { key: data.key, name: data.name || name, size: data.size, lastModified: new Date() }])
       setUploads(prev => ({ ...prev, [data.key]: { uploaderId: deviceId } }))
-      markOwned(data.key); const newPts = addPoints(5)
-      setPoints(newPts)
+      markOwned(data.key)
+      setPoints(addPoints(5))
       setPointsAnim('+5 pts')
       setTimeout(() => setPointsAnim(null), 2000)
     } catch (err) {
