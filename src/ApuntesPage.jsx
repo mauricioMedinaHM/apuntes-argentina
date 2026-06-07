@@ -4,8 +4,9 @@ import {
   Search, ArrowLeft, Star, Bookmark, BookmarkCheck,
   Download, ChevronRight, FolderOpen, FolderPlus,
   FileText, AlertCircle, Loader, Upload, Plus,
-  X, Check, FileUp, Trash2,
+  X, Check, FileUp, Trash2, Lock,
 } from 'lucide-react'
+import { useAuth, SignInButton } from '@clerk/react'
 import { UNIVERSITIES, FACULTIES } from './universities.js'
 import { getDeviceId, getPoints, addPoints, markOwned, isOwned, unmarkOwned } from './device.js'
 import PreviewModal from './PreviewModal.jsx'
@@ -160,6 +161,7 @@ export default function ApuntesPage({ onBack }) {
   const [points,   setPoints]   = useState(getPoints)
   const [pointsAnim, setPointsAnim] = useState(null)
   const [preview,  setPreview]  = useState(null)   // file object to preview
+  const { isSignedIn, getToken } = useAuth()
   const deviceId = getDeviceId()
   const fileRef   = useRef(null)
   const createRef = useRef(null)
@@ -202,6 +204,7 @@ export default function ApuntesPage({ onBack }) {
 
   // ── Create folder ─────────────────────────────────────────────────────
   const confirmCreate = () => {
+    if (!isSignedIn) return   // defensa extra: solo logueados crean carreras/materias
     const name = newName.trim()
     if (!name) return
     if (creating === 'career') {
@@ -231,6 +234,10 @@ export default function ApuntesPage({ onBack }) {
   }
 
   const uploadOne = async entry => {
+    if (!isSignedIn) {
+      setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'error', error: 'Iniciá sesión para subir apuntes' } : e))
+      return
+    }
     setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'uploading', progress: 10 } : e))
     const fd = new FormData()
     fd.append('file', entry.file)
@@ -239,8 +246,13 @@ export default function ApuntesPage({ onBack }) {
     fd.append('subject', subject)
     fd.append('uploaderId', deviceId)
     try {
+      const token = await getToken()
       const tick = setInterval(() => setQueue(prev => prev.map(e => e.id === entry.id && e.progress < 80 ? { ...e, progress: e.progress + 20 } : e)), 400)
-      const res = await fetch(`${API}/upload`, { method: 'POST', body: fd })
+      const res = await fetch(`${API}/upload`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      })
       clearInterval(tick)
       if (!res.ok) throw new Error((await res.json()).error)
       const data = await res.json()
@@ -261,11 +273,13 @@ export default function ApuntesPage({ onBack }) {
 
   // ── Delete (solo propios) ─────────────────────────────────────────────
   const deleteFile = async key => {
+    if (!isSignedIn) { alert('Iniciá sesión para eliminar archivos.'); return }
     if (!window.confirm('¿Eliminar este archivo del vault?')) return
     try {
+      const token = await getToken()
       const res = await fetch(`${API}/files`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ key, uploaderId: deviceId }),
       })
       if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
@@ -384,8 +398,15 @@ export default function ApuntesPage({ onBack }) {
         {level !== 'subject' && (
           <div className="ap-folder-grid">
 
-            {/* Create new folder card */}
-            {creating === (level === 'university' ? 'career' : 'subject') ? (
+            {/* Create new folder card — solo para usuarios logueados */}
+            {!isSignedIn ? (
+              <SignInButton mode="modal">
+                <button className="ap-new-folder-btn ap-new-folder-btn--locked" type="button">
+                  <div className="ap-nf-plus"><Lock size={18}/></div>
+                  <span>Iniciá sesión para {level === 'university' ? 'crear una carrera' : 'crear una materia'}</span>
+                </button>
+              </SignInButton>
+            ) : creating === (level === 'university' ? 'career' : 'subject') ? (
               <div className="ap-new-folder-input-card">
                 <FolderPlus size={22} className="ap-nf-icon"/>
                 <input
@@ -436,7 +457,7 @@ export default function ApuntesPage({ onBack }) {
             </AnimatePresence>
 
             {/* Faculty suggestions (only at university level, no careers yet) */}
-            {level === 'university' && careers.length === 0 && !creating && suggestions.length > 0 && (
+            {isSignedIn && level === 'university' && careers.length === 0 && !creating && suggestions.length > 0 && (
               <div className="ap-suggestions">
                 <p className="ap-suggestions-lbl">Carreras frecuentes en {uni}:</p>
                 <div className="ap-suggestions-row">
@@ -456,20 +477,31 @@ export default function ApuntesPage({ onBack }) {
         {level === 'subject' && (
           <div className="ap-subject-view">
 
-            {/* Upload zone */}
-            <div
-              className={`ap-drop${drag?' ap-drop--active':''}`}
-              onDrop={e => { e.preventDefault(); setDrag(false); addFiles(e.dataTransfer.files) }}
-              onDragOver={e => { e.preventDefault(); setDrag(true) }}
-              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDrag(false) }}
-              onClick={() => fileRef.current?.click()}
-            >
-              <input ref={fileRef} type="file" multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg"
-                style={{ display:'none' }} onChange={e => addFiles(e.target.files)} />
-              <FileUp size={24} className="ap-drop-icon"/>
-              <p className="ap-drop-title">{drag ? 'Soltá acá' : 'Arrastrá tus archivos o hacé click'}</p>
-              <p className="ap-drop-sub">PDF, Word, PowerPoint, imágenes · Máx 50 MB</p>
-            </div>
+            {/* Upload zone — solo para usuarios logueados */}
+            {!isSignedIn ? (
+              <div className="ap-drop ap-drop--locked">
+                <Lock size={24} className="ap-drop-icon"/>
+                <p className="ap-drop-title">Iniciá sesión para subir apuntes</p>
+                <p className="ap-drop-sub">Solo usuarios registrados pueden cargar archivos al vault</p>
+                <SignInButton mode="modal">
+                  <button className="ap-drop-signin" type="button">Iniciar sesión</button>
+                </SignInButton>
+              </div>
+            ) : (
+              <div
+                className={`ap-drop${drag?' ap-drop--active':''}`}
+                onDrop={e => { e.preventDefault(); setDrag(false); addFiles(e.dataTransfer.files) }}
+                onDragOver={e => { e.preventDefault(); setDrag(true) }}
+                onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDrag(false) }}
+                onClick={() => fileRef.current?.click()}
+              >
+                <input ref={fileRef} type="file" multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg"
+                  style={{ display:'none' }} onChange={e => addFiles(e.target.files)} />
+                <FileUp size={24} className="ap-drop-icon"/>
+                <p className="ap-drop-title">{drag ? 'Soltá acá' : 'Arrastrá tus archivos o hacé click'}</p>
+                <p className="ap-drop-sub">PDF, Word, PowerPoint, imágenes · Máx 50 MB</p>
+              </div>
+            )}
 
             {/* Queue */}
             <AnimatePresence>

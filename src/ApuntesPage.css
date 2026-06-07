@@ -323,6 +323,36 @@
 .ap-drop-title { font-size: 0.95rem; font-weight: 600; color: var(--color-primary); }
 .ap-drop-sub   { font-size: 0.78rem; color: var(--color-secondary); }
 
+/* Locked states — usuario no logueado */
+.ap-drop--locked {
+  cursor: default;
+  border-style: solid;
+  border-color: var(--color-border);
+  background: var(--color-bg);
+}
+.ap-drop--locked:hover { background: var(--color-bg); border-color: var(--color-border); }
+.ap-drop--locked .ap-drop-icon { color: var(--color-secondary); }
+.ap-drop-signin {
+  margin-top: 6px;
+  background: var(--color-primary); color: #fff;
+  border: none; border-radius: 9px;
+  padding: 9px 22px; font-size: 0.85rem; font-weight: 700;
+  cursor: pointer; font-family: inherit; transition: background 0.15s;
+}
+.ap-drop-signin:hover { background: #1a2844; }
+
+.ap-new-folder-btn--locked {
+  cursor: pointer;
+  border-style: solid;
+  background: var(--color-bg);
+  color: var(--color-secondary);
+}
+.ap-new-folder-btn--locked:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: rgba(35,53,92,0.03);
+}
+
 /* Queue */
 .ap-queue {
   background: var(--color-white);
