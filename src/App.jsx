@@ -18,6 +18,7 @@ import {
   Cpu,
 } from 'lucide-react'
 import { SiGithub as Github, SiInstagram as Instagram, SiX as XTwitter } from 'react-icons/si'
+import { SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react'
 import VaultAnimation from './VaultAnimation'
 import MockApuntes from './MockApuntes'
 import SplashScreen, { shouldShowSplash } from './SplashScreen'
