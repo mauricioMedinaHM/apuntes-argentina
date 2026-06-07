@@ -166,11 +166,17 @@ export default function ApuntesPage({ onBack }) {
 
   // Bootstrap
   useEffect(() => {
+    const okJson = (fallback) => (r) => (r.ok ? r.json() : fallback)
     Promise.all([
-      fetch(`${API}/tree`).then(r => r.json()).catch(() => ({ universities:[], careers:{}, subjects:{} })),
-      fetch(`${API}/ratings`).then(r => r.json()).catch(() => ({})),
-      fetch(`${API}/uploads`).then(r => r.json()).catch(() => ({})),
-    ]).then(([t, r, u]) => { setTree(t); setRatings(r); setUploads(u) }).finally(() => setTreeLoad(false))
+      fetch(`${API}/tree`).then(okJson({ universities:[], careers:{}, subjects:{} })).catch(() => ({ universities:[], careers:{}, subjects:{} })),
+      fetch(`${API}/ratings`).then(okJson({})).catch(() => ({})),
+      fetch(`${API}/uploads`).then(okJson({})).catch(() => ({})),
+    ]).then(([t, r, u]) => {
+      // Garantiza la forma esperada aunque el backend devuelva algo inesperado
+      setTree(t && Array.isArray(t.universities) ? t : { universities:[], careers:{}, subjects:{} })
+      setRatings(r && typeof r === 'object' ? r : {})
+      setUploads(u && typeof u === 'object' ? u : {})
+    }).finally(() => setTreeLoad(false))
   }, [])
 
   // Load files

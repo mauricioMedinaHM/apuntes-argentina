@@ -111,8 +111,9 @@ const ALLOWED = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,http://lo
 
 app.use(cors({
   origin: (origin, cb) => {
-    // Permite requests sin Origin (curl, apps nativas) solo en dev
-    if (!origin && process.env.NODE_ENV !== 'production') return cb(null, true)
+    // Permite requests sin Origin: son same-origin (el browser no envía Origin
+    // en GET same-origin) o no-browser (curl, apps nativas). No hay riesgo cross-origin.
+    if (!origin) return cb(null, true)
     if (ALLOWED.includes(origin)) return cb(null, true)
     cb(new Error(`CORS: origin no permitido — ${origin}`))
   },
