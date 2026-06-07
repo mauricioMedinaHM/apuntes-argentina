@@ -4,9 +4,6 @@ import {
   BookOpen,
   Search,
   Upload,
-  Github,
-  Instagram,
-  Twitter,
   MapPin,
   Users,
   Heart,
@@ -20,8 +17,7 @@ import {
   RotateCcw,
   Cpu,
 } from 'lucide-react'
-
-import { SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react'
+import { SiGithub as Github, SiInstagram as Instagram, SiX as XTwitter } from 'react-icons/si'
 import VaultAnimation from './VaultAnimation'
 import MockApuntes from './MockApuntes'
 import SplashScreen, { shouldShowSplash } from './SplashScreen'
@@ -699,7 +695,7 @@ export default function App() {
                   aria-label="X / Twitter"
                   className="social-link"
                 >
-                  <Twitter size={20} />
+                  <XTwitter size={20} />
                 </a>
                 <a
                   href="https://github.com/mauricioMedinaHM/apuntes-argentina"

@@ -72,10 +72,10 @@ No hace falta ninguna variable de entorno para ver el frontend.
 
 | Parte | Tecnología |
 |---|---|
-| Frontend | React 19 + Vite 6 |
+| Frontend | React 19 + Vite 8 (Node 22) |
 | Animaciones | Motion (Framer Motion) |
 | Iconos | Lucide React |
-| MCP Server | TypeScript + Node.js 18 |
+| MCP Server (pendiente) | TypeScript + Node.js |
 | Storage (pendiente) | AWS S3 / Cloudflare R2 |
 
 ### Estructura

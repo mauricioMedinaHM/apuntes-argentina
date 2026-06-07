@@ -1,5 +1,5 @@
-# Build output
-dist/
+# Dependencies
+node_modules
 
 # Dependencies
 node_modules/
@@ -14,7 +14,31 @@ node_modules/
 
 # Social media content — no es parte del proyecto
 social/
+# Build output
+dist
+dist-ssr
 
-# Editor
-.vscode/
-.idea/
+# Local env files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Other package managers (this project uses npm)
+pnpm-lock.yaml
+pnpm-workspace.yaml
+yarn.lock
+
+# Local agent tooling
+.atl
+CLAUDE.md
