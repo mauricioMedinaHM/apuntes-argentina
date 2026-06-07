@@ -206,53 +206,68 @@ export default function UploadPage({ onBack }) {
   const removeFromQueue = id => setQueue(prev => prev.filter(e => e.id !== id))
 
   // ── Upload logic ───────────────────────────────────────────────────────
+  // Lee la respuesta como JSON, pero si el server/proxy devolvió texto plano
+  // (ej. el 413 "Request Entity Too Large" de Vercel) da un mensaje claro.
+  const readError = async (res) => {
+    const text = await res.text()
+    try { return JSON.parse(text).error || text }
+    catch {
+      if (res.status === 413) return 'El archivo es demasiado grande.'
+      return `Error ${res.status}. Intentá de nuevo.`
+    }
+  }
+
   const uploadOne = async (entry) => {
     if (!uni || !career || !subject) return
+    if (entry.file.size > 50 * 1024 * 1024) {
+      setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'error', error: 'Máximo 50 MB por archivo' } : e))
+      return
+    }
 
-    setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'uploading', progress: 10 } : e))
-
-    const fd = new FormData()
-    fd.append('file', entry.file)
-    fd.append('university', uni)
-    fd.append('career', career)
-    fd.append('subject', subject)
+    setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'uploading', progress: 8 } : e))
+    const setProg = p => setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, progress: p } : e))
 
     try {
       const token = await getToken()
+      const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {}
 
-      // Fake progress while uploading
-      const tick = setInterval(() => {
-        setQueue(prev => prev.map(e =>
-          e.id === entry.id && e.progress < 85
-            ? { ...e, progress: e.progress + 15 }
-            : e
-        ))
-      }, 300)
-
-      const res = await fetch(`${API}/upload`, {
+      // ── Paso 1: pedir URL prefirmada (request chico, sin el archivo) ──
+      const urlRes = await fetch(`${API}/upload-url`, {
         method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        body: fd,
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ university: uni, career, subject, filename: entry.file.name, size: entry.file.size }),
       })
-      clearInterval(tick)
+      if (!urlRes.ok) throw new Error(await readError(urlRes))
+      const { uploadUrl, key, name, contentType } = await urlRes.json()
+      setProg(20)
 
-      if (!res.ok) {
-        const { error } = await res.json()
-        throw new Error(error)
-      }
+      // ── Paso 2: subir el archivo DIRECTO a R2 (con progreso real via XHR) ──
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('PUT', uploadUrl)
+        xhr.setRequestHeader('Content-Type', contentType)
+        xhr.upload.onprogress = ev => {
+          if (ev.lengthComputable) setProg(20 + Math.round((ev.loaded / ev.total) * 70))
+        }
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300)
+          ? resolve()
+          : reject(new Error('No se pudo subir el archivo al almacenamiento'))
+        xhr.onerror = () => reject(new Error('Error de red al subir el archivo'))
+        xhr.send(entry.file)
+      })
+      setProg(92)
 
-      const data = await res.json()
-      const savedPct = data.originalSize > 0
-        ? Math.round((1 - data.size / data.originalSize) * 100)
-        : 0
-      setQueue(prev => prev.map(e =>
-        e.id === entry.id
-          ? { ...e, status: 'done', progress: 100, savedPct: savedPct > 0 ? savedPct : null }
-          : e
-      ))
+      // ── Paso 3: confirmar y registrar ──
+      const confRes = await fetch(`${API}/confirm-upload`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      })
+      if (!confRes.ok) throw new Error(await readError(confRes))
+      const data = await confRes.json()
 
-      // Refresh file list
-      setFiles(prev => [...prev, { key: data.key, name: data.name, size: data.size, lastModified: new Date() }])
+      setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'done', progress: 100 } : e))
+      setFiles(prev => [...prev, { key: data.key, name: data.name || name, size: data.size, lastModified: new Date() }])
 
     } catch (err) {
       setQueue(prev => prev.map(e => e.id === entry.id ? { ...e, status: 'error', error: err.message } : e))

@@ -22,8 +22,9 @@ import { clerkMiddleware, getAuth } from '@clerk/express'
 import { fileTypeFromBuffer } from 'file-type'
 import {
   S3Client, PutObjectCommand, ListObjectsV2Command,
-  DeleteObjectCommand, GetObjectCommand,
+  DeleteObjectCommand, GetObjectCommand, HeadObjectCommand,
 } from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import sharp   from 'sharp'
 import JSZip   from 'jszip'
 import { writeFile, unlink } from 'fs/promises'
@@ -417,7 +418,94 @@ app.get('/api/files', treeLimiter, async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
-/** Upload — requiere autenticación Clerk */
+// ── Nombre de archivo limpio (compartido) ──────────────────────────────────
+function cleanFileName(originalname) {
+  const m = originalname.match(/\.(\w+)$/)
+  const ext = m ? '.' + m[1].toLowerCase() : ''
+  const base = originalname
+    .normalize('NFC')
+    .replace(/\.\w+$/, '')
+    .replace(/[^\w.\- áéíóúÁÉÍÓÚñÑüÜ]/g, '_')
+    .slice(0, 100)
+  return base + ext
+}
+
+const EXT_TO_MIME = {
+  '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+}
+
+/**
+ * Paso 1 — Genera una URL prefirmada para subir DIRECTO a R2.
+ * El archivo no pasa por Vercel, evitando el límite de 4.5 MB de las functions.
+ */
+app.post('/api/upload-url', uploadLimiter, requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  const uni     = sanitizePath(req.body.university)
+  const career  = sanitizePath(req.body.career)
+  const subject = sanitizePath(req.body.subject)
+  const filename = typeof req.body.filename === 'string' ? req.body.filename : ''
+  const size = Number(req.body.size) || 0
+
+  log('POST', '/api/upload-url', `${uni}/${career}/${subject} — ${filename} (user: ${userId})`)
+
+  if (!uni || !career || !subject) return res.status(400).json({ error: 'university, career y subject son requeridos' })
+  if (!filename)                   return res.status(400).json({ error: 'filename requerido' })
+  if (size > 50 * 1024 * 1024)     return res.status(413).json({ error: 'El archivo supera el máximo de 50 MB' })
+
+  const clean = cleanFileName(filename)
+  const ext = clean.match(/\.\w+$/)?.[0]?.toLowerCase() ?? ''
+  const contentType = EXT_TO_MIME[ext]
+  if (!contentType) return res.status(415).json({ error: `Tipo de archivo no permitido (${ext || 'sin extensión'})` })
+
+  const key = `${uni}/${career}/${subject}/${clean}`
+
+  try {
+    const cmd = new PutObjectCommand({
+      Bucket: BUCKET, Key: key, ContentType: contentType,
+      Metadata: { 'uploader-id': userId, 'university': uni, 'career': career, 'subject': subject },
+    })
+    const uploadUrl = await getSignedUrl(s3, cmd, { expiresIn: 300 }) // 5 min
+    res.json({ uploadUrl, key, name: clean, contentType })
+  } catch (err) {
+    console.error('[upload-url]', err.message)
+    res.status(500).json({ error: 'No se pudo generar la URL de subida' })
+  }
+})
+
+/**
+ * Paso 3 — Confirma que el archivo se subió a R2 y lo registra.
+ */
+app.post('/api/confirm-upload', requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  const key = sanitizeKey(req.body.key)
+  log('POST', '/api/confirm-upload', `${key} (user: ${userId})`)
+  if (!key) return res.status(400).json({ error: 'key inválido' })
+
+  try {
+    // Verificar que el objeto existe realmente en R2
+    const head = await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }))
+    const size = head.ContentLength ?? 0
+
+    await readMeta('_meta/uploads.json').then(data => {
+      data[key] = { uploaderId: userId, uploadedAt: new Date().toISOString() }
+      return writeMeta('_meta/uploads.json', data)
+    })
+    await updateIndex()
+
+    res.json({ success: true, key, name: key.split('/').pop(), size })
+  } catch (err) {
+    if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404)
+      return res.status(404).json({ error: 'El archivo no se encontró en el almacenamiento. Reintentá la subida.' })
+    console.error('[confirm-upload]', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+/** Upload directo (legacy) — solo para archivos < 4.5 MB. Requiere auth Clerk. */
 app.post(
   '/api/upload',
   uploadLimiter,
