@@ -124,28 +124,33 @@
 
 /* ── Folder grid ── */
 .ap-folder-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* New folder button */
 .ap-new-folder-btn {
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  gap: 10px;
-  padding: 24px 16px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
   background: var(--color-white);
   border: 2px dashed var(--color-border);
-  border-radius: 16px;
-  cursor: pointer; font-family: inherit;
-  transition: all 0.18s; color: var(--color-secondary);
-  font-size: 0.85rem; font-weight: 600;
+  border-radius: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.18s;
+  color: var(--color-secondary);
+  font-size: 0.88rem;
+  font-weight: 600;
+  min-height: 72px;
 }
 .ap-new-folder-btn:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
-  background: rgba(35,53,92,0.03);
+  background: rgba(35,53,92,0.02);
 }
 
 .ap-nf-plus {
@@ -155,6 +160,7 @@
   display: flex; align-items: center; justify-content: center;
   color: var(--color-primary);
   transition: background 0.15s;
+  flex-shrink: 0;
 }
 .ap-new-folder-btn:hover .ap-nf-plus { background: var(--color-primary); color: #fff; }
 
@@ -199,24 +205,67 @@
 
 /* Folder card */
 .ap-folder-card {
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  gap: 10px; padding: 24px 16px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
   background: var(--color-white);
   border: 1.5px solid var(--color-border);
-  border-radius: 16px;
-  cursor: pointer; font-family: inherit;
-  transition: border-color 0.15s;
+  border-radius: 14px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.16s;
   position: relative;
-  text-align: center;
+  text-align: left;
+  min-height: 72px;
 }
-.ap-folder-card:hover { border-color: var(--color-secondary); }
+.ap-folder-card:hover {
+  border-color: var(--color-primary);
+  background: rgba(35,53,92,0.02);
+}
 .ap-folder-card--fav { border-color: rgba(200,168,0,0.4); }
 
+.ap-folder-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(55,140,195,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.16s;
+}
+.ap-folder-card:hover .ap-folder-icon-wrap {
+  background: rgba(35,53,92,0.1);
+}
+
 .ap-folder-icon { color: var(--color-celeste); }
+.ap-folder-card:hover .ap-folder-icon { color: var(--color-primary); }
+
+.ap-folder-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
 .ap-folder-name {
-  font-size: 0.88rem; font-weight: 600;
-  color: var(--color-primary); line-height: 1.35;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ap-folder-sub {
+  font-size: 0.72rem;
+  color: var(--color-border);
+  font-weight: 500;
 }
 
 .ap-bk-mini {
@@ -573,9 +622,11 @@
 
 /* ── Responsive ── */
 @media (max-width: 768px) {
-  .ap-content { padding: 20px 16px 32px; }
-  .ap-folder-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .ap-folder-card, .ap-new-folder-btn { padding: 18px 12px; }
+  .ap-content { padding: 16px 14px 32px; }
+  .ap-folder-grid { gap: 8px; }
+  .ap-folder-card { padding: 12px 14px; min-height: 60px; }
+  .ap-folder-icon-wrap { width: 38px; height: 38px; border-radius: 10px; }
+  .ap-new-folder-btn { padding: 12px 14px; min-height: 60px; }
   .ap-bar { padding: 10px 14px; }
   .ap-unisel-head { padding: 14px 16px 22px; flex-direction: column; gap: 12px; }
   .ap-unisel-sticky { padding: 12px 16px 8px; }

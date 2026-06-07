@@ -411,9 +411,14 @@ export default function ApuntesPage({ onBack }) {
                 <motion.button key={name} className={`ap-folder-card ${level==='career' && isSubFav(name) ? 'ap-folder-card--fav':''}`}
                   onClick={() => level === 'university' ? goCareer(name) : goSubject(name)}
                   initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ delay: i*0.04 }}
-                  whileHover={{ y:-3, boxShadow:'0 6px 20px rgba(35,53,92,0.12)' }}>
-                  <FolderOpen size={28} className="ap-folder-icon"/>
-                  <span className="ap-folder-name">{name}</span>
+                  whileHover={{ y:-3, boxShadow:'0 8px 28px rgba(35,53,92,0.13)' }}>
+                  <div className="ap-folder-icon-wrap">
+                    <FolderOpen size={22} className="ap-folder-icon"/>
+                  </div>
+                  <div className="ap-folder-body">
+                    <span className="ap-folder-name">{name}</span>
+                    <span className="ap-folder-sub">{level === 'university' ? 'Carrera' : 'Materia'}</span>
+                  </div>
                   {level === 'career' && (
                     <button className={`ap-bk-mini ${isSubFav(name)?'ap-bk-mini--on':''}`}
                       onClick={e => { e.stopPropagation(); toggleFavSub(name) }}>

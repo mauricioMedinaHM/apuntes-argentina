@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import {
   Upload, FileText, Folder, FolderOpen, ChevronRight,
   CheckCircle, XCircle, Trash2, ArrowLeft, Plus, X, Loader, LogIn,
+  BookMarked, Search, GraduationCap, CloudUpload,
 } from 'lucide-react'
 
 import { useAuth, useSession, SignInButton, SignUpButton } from '@clerk/react'
@@ -153,6 +154,7 @@ export default function UploadPage({ onBack }) {
   const [queue, setQueue]         = useState([])          // pending uploads
   const [isDragging, setIsDragging] = useState(false)
   const [serverOk, setServerOk]   = useState(null)
+  const [uniSearch, setUniSearch] = useState('')
   const fileInputRef              = useRef(null)
 
   // ── Bootstrap ──────────────────────────────────────────────────────────
@@ -361,44 +363,49 @@ export default function UploadPage({ onBack }) {
         )}
       </AnimatePresence>
 
-      {/* ── Browser chrome ── */}
-      <div className="up-chrome">
-        <div className="up-chrome-left">
-          <button className="up-back-btn" onClick={onBack}>
-            <ArrowLeft size={16} /> Volver
-          </button>
+      {/* ── Header ── */}
+      <header className="up-header">
+        <button className="up-header-back" onClick={onBack}>
+          <ArrowLeft size={16} />
+          <span>Volver</span>
+        </button>
+        <div className="up-header-brand">
+          <BookMarked size={18} strokeWidth={2} />
+          <span>Subir apuntes</span>
         </div>
-        <div className="up-chrome-url">
-          <span className="up-url-lock">🔒</span>
-          apuntesargentina.ar/subir
+        <div className="up-header-path">
+          {uni && <span className="up-hp-item">{uni}</span>}
+          {career && <><ChevronRight size={12} className="up-hp-sep"/><span className="up-hp-item">{career}</span></>}
+          {subject && <><ChevronRight size={12} className="up-hp-sep"/><span className="up-hp-item up-hp-item--active">{subject}</span></>}
         </div>
-        <div className="up-chrome-right">
-          <span className="up-chrome-badge">Modo local</span>
-        </div>
-      </div>
+        {readyToUpload && pendingCount > 0 && (
+          <motion.button className="up-header-upload-btn" onClick={uploadAll}
+            whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+            <CloudUpload size={15} />
+            Subir {pendingCount} archivo{pendingCount > 1 ? 's' : ''}
+          </motion.button>
+        )}
+      </header>
 
       {/* ── App shell ── */}
       <div className="up-app">
 
-        {/* Top bar */}
-        <div className="up-topbar">
-          <div className="up-breadcrumb">
-            <span className="up-bc-root">Vault</span>
-            {uni    && <><ChevronRight size={13} className="up-bc-sep" /><span>{uni}</span></>}
-            {career && <><ChevronRight size={13} className="up-bc-sep" /><span>{career}</span></>}
-            {subject && <><ChevronRight size={13} className="up-bc-sep" /><span className="up-bc-current">{subject}</span></>}
+        {/* Indicador de progreso por pasos */}
+        <div className="up-steps-bar">
+          <div className={`up-step-pill ${uni ? 'up-step-pill--done' : 'up-step-pill--active'}`}>
+            <GraduationCap size={13} />
+            <span>{uni || 'Universidad'}</span>
           </div>
-          {readyToUpload && pendingCount > 0 && (
-            <motion.button
-              className="up-upload-btn"
-              onClick={uploadAll}
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-            >
-              <Upload size={14} />
-              Subir {pendingCount} archivo{pendingCount > 1 ? 's' : ''}
-            </motion.button>
-          )}
+          <ChevronRight size={12} className="up-step-sep" />
+          <div className={`up-step-pill ${career ? 'up-step-pill--done' : uni ? 'up-step-pill--active' : ''}`}>
+            <Folder size={13} />
+            <span>{career || 'Carrera'}</span>
+          </div>
+          <ChevronRight size={12} className="up-step-sep" />
+          <div className={`up-step-pill ${subject ? 'up-step-pill--done' : career ? 'up-step-pill--active' : ''}`}>
+            <FolderOpen size={13} />
+            <span>{subject || 'Materia'}</span>
+          </div>
         </div>
 
         <div className="up-body">
@@ -408,6 +415,17 @@ export default function UploadPage({ onBack }) {
 
             {/* Universidad */}
             <p className="up-sidebar-label">Universidad</p>
+
+            {/* Buscador desktop */}
+            <div className="up-sidebar-search">
+              <Search size={13} className="up-sidebar-search-icon" />
+              <input
+                className="up-sidebar-search-input"
+                placeholder="Buscar universidad…"
+                value={uniSearch}
+                onChange={e => setUniSearch(e.target.value)}
+              />
+            </div>
 
             {/* Mobile: selector nativo OS (mucho más usable para 123 items) */}
             <select
@@ -422,7 +440,7 @@ export default function UploadPage({ onBack }) {
 
             {/* Desktop: lista de botones */}
             <div className="up-uni-list">
-              {UNI_LIST.map(u => (
+              {UNI_LIST.filter(u => !uniSearch || u.name.toLowerCase().includes(uniSearch.toLowerCase()) || u.full.toLowerCase().includes(uniSearch.toLowerCase())).map(u => (
                 <button
                   key={u.id}
                   className={`up-uni-btn ${u.name === uni ? 'up-uni-btn--active' : ''}`}
@@ -545,15 +563,20 @@ export default function UploadPage({ onBack }) {
                     onChange={e => addToQueue(Array.from(e.target.files))}
                   />
                   <motion.div
-                    animate={isDragging ? { scale: 1.04 } : { scale: 1 }}
+                    animate={isDragging ? { scale: 1.03 } : { scale: 1 }}
                     transition={{ duration: 0.15 }}
                     className="up-dropzone-inner"
                   >
-                    <Upload size={32} strokeWidth={1.3} className="up-drop-icon" />
-                    <p className="up-drop-title">
-                      {isDragging ? 'Soltá los archivos acá' : 'Arrastrá o hacé click para elegir'}
-                    </p>
-                    <p className="up-drop-sub">PDF, Word, PowerPoint, imágenes · Máx 50 MB por archivo</p>
+                    <div className={`up-drop-circle ${isDragging ? 'up-drop-circle--active' : ''}`}>
+                      <CloudUpload size={28} strokeWidth={1.4} />
+                    </div>
+                    <div className="up-drop-text">
+                      <p className="up-drop-title">
+                        {isDragging ? 'Soltá los archivos acá' : 'Arrastrá tus archivos o hacé click'}
+                      </p>
+                      <p className="up-drop-sub">PDF · Word · PowerPoint · Imágenes · Máx 50 MB</p>
+                    </div>
+                    <span className="up-drop-browse">Elegir archivo</span>
                   </motion.div>
                 </div>
 
