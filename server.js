@@ -18,7 +18,7 @@ import multer         from 'multer'
 import cors           from 'cors'
 import helmet         from 'helmet'
 import rateLimit      from 'express-rate-limit'
-import { clerkMiddleware, requireAuth, getAuth } from '@clerk/express'
+import { clerkMiddleware, getAuth } from '@clerk/express'
 import { fileTypeFromBuffer } from 'file-type'
 import {
   S3Client, PutObjectCommand, ListObjectsV2Command,
@@ -126,8 +126,15 @@ app.use(express.json({ limit: '1mb' }))
 
 // ── Clerk middleware (verifica JWT en todos los requests) ─────────────────
 // clerkMiddleware() no rechaza requests sin token — solo adjunta auth context.
-// Los endpoints protegidos usan requireAuth() como middleware adicional.
 app.use(clerkMiddleware())
+
+// requireAuth() de Clerk redirige (302) requests sin sesión — útil para páginas,
+// pero esto es una API: queremos un 401 JSON limpio. Verificamos el userId del JWT.
+function requireAuthApi(req, res, next) {
+  const { userId } = getAuth(req)
+  if (!userId) return res.status(401).json({ error: 'Autenticación requerida' })
+  next()
+}
 
 // ── Rate limiting ─────────────────────────────────────────────────────────
 const globalLimiter = rateLimit({
@@ -414,7 +421,7 @@ app.get('/api/files', treeLimiter, async (req, res) => {
 app.post(
   '/api/upload',
   uploadLimiter,
-  requireAuth(),  // 401 si no hay JWT válido (sin redirect — es una API)
+  requireAuthApi,  // 401 JSON si no hay JWT válido
   upload.single('file'),
   async (req, res) => {
     const { userId } = getAuth(req)              // userId del JWT verificado
@@ -472,7 +479,7 @@ app.post(
 app.delete(
   '/api/files',
   deleteLimiter,
-  requireAuth(),  // 401 si no hay JWT válido (sin redirect — es una API)
+  requireAuthApi,  // 401 JSON si no hay JWT válido
   async (req, res) => {
     const { userId } = getAuth(req)             // userId del JWT verificado
 
@@ -585,7 +592,7 @@ app.get('/api/uploads', async (_req, res) => {
 /** Verificar si el usuario autenticado es dueño de un archivo */
 app.post(
   '/api/verify-owner',
-  requireAuth(),
+  requireAuthApi,
   async (req, res) => {
     const { userId } = getAuth(req)
     const key = sanitizeKey(req.body.key)
