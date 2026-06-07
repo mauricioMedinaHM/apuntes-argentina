@@ -516,7 +516,7 @@
 }
 
 .why-card--solution h3 { color: var(--color-white); }
-.why-card--solution p  { color: rgba(255, 255, 255, 0.92); }
+.why-card--solution p  { color: rgba(255, 255, 255, 1); }
 
 .why-card-icon {
   width: 52px;
