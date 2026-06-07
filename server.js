@@ -19,7 +19,13 @@ import {
   S3Client, PutObjectCommand, ListObjectsV2Command,
   DeleteObjectCommand, GetObjectCommand,
 } from '@aws-sdk/client-s3'
-import { compress as compressPdf } from 'compress-pdf'
+// compress-pdf usa Ghostscript (child_process) — no disponible en Vercel serverless
+const IS_SERVERLESS = !!process.env.VERCEL
+let compressPdf = null
+if (!IS_SERVERLESS) {
+  const mod = await import('compress-pdf')
+  compressPdf = mod.compress
+}
 import sharp   from 'sharp'
 import JSZip   from 'jszip'
 import { writeFile, unlink } from 'fs/promises'
@@ -287,6 +293,8 @@ async function compressFile(buffer, mimetype, originalname) {
   const orig = buffer.length
   try {
     if (mimetype === 'application/pdf') {
+      // PDF compression requiere Ghostscript — solo disponible en local
+      if (!compressPdf) return { buffer, mimetype, ext: '.pdf' }
       const tmpIn = join(tmpdir(), `aa_${randomBytes(6).toString('hex')}.pdf`)
       try {
         await writeFile(tmpIn, buffer)
@@ -599,12 +607,16 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Error interno del servidor' })
 })
 
-// ── Start ─────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`\n✅ Server → http://localhost:${PORT}`)
-  console.log(`   Bucket : ${BUCKET ?? '⚠️  CF_R2_BUCKET_NAME no configurado'}`)
-  console.log(`   CORS   : ${ALLOWED.join(', ')}`)
-  if (!process.env.CF_R2_ACCESS_KEY_ID)  console.warn('   ⚠️  CF_R2_ACCESS_KEY_ID no configurado')
-  if (!process.env.CF_R2_SECRET_ACCESS_KEY) console.warn('   ⚠️  CF_R2_SECRET_ACCESS_KEY no configurado')
-  if (!process.env.CLERK_SECRET_KEY)     console.warn('   ⚠️  CLERK_SECRET_KEY no configurado — autenticación deshabilitada')
-})
+// ── Start (solo en desarrollo local, no en Vercel serverless) ────────────
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`\n✅ Server → http://localhost:${PORT}`)
+    console.log(`   Bucket : ${BUCKET ?? '⚠️  CF_R2_BUCKET_NAME no configurado'}`)
+    console.log(`   CORS   : ${ALLOWED.join(', ')}`)
+    if (!process.env.CF_R2_ACCESS_KEY_ID)     console.warn('   ⚠️  CF_R2_ACCESS_KEY_ID no configurado')
+    if (!process.env.CF_R2_SECRET_ACCESS_KEY) console.warn('   ⚠️  CF_R2_SECRET_ACCESS_KEY no configurado')
+    if (!process.env.CLERK_SECRET_KEY)        console.warn('   ⚠️  CLERK_SECRET_KEY no configurado')
+  })
+}
+
+export default app
