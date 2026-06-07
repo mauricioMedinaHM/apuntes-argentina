@@ -414,7 +414,7 @@ app.get('/api/files', treeLimiter, async (req, res) => {
 app.post(
   '/api/upload',
   uploadLimiter,
-  requireAuth({ signInUrl: '/unauthorized' }),  // 401 si no hay JWT válido
+  requireAuth(),  // 401 si no hay JWT válido (sin redirect — es una API)
   upload.single('file'),
   async (req, res) => {
     const { userId } = getAuth(req)              // userId del JWT verificado
@@ -472,7 +472,7 @@ app.post(
 app.delete(
   '/api/files',
   deleteLimiter,
-  requireAuth({ signInUrl: '/unauthorized' }),  // 401 si no hay JWT válido
+  requireAuth(),  // 401 si no hay JWT válido (sin redirect — es una API)
   async (req, res) => {
     const { userId } = getAuth(req)             // userId del JWT verificado
 
@@ -585,7 +585,7 @@ app.get('/api/uploads', async (_req, res) => {
 /** Verificar si el usuario autenticado es dueño de un archivo */
 app.post(
   '/api/verify-owner',
-  requireAuth({ signInUrl: '/unauthorized' }),
+  requireAuth(),
   async (req, res) => {
     const { userId } = getAuth(req)
     const key = sanitizeKey(req.body.key)
