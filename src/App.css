@@ -742,6 +742,11 @@
   color: #4527A0;
 }
 
+.uni-type-badge--utn {
+  background: #FFEBEE;
+  color: #C62828;
+}
+
 .uni-type-badge--provincial {
   background: #E3F2FD;
   color: #1565C0;

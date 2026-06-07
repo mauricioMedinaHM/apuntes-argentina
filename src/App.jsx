@@ -146,7 +146,7 @@ function UniversityCard({ uni, delay }) {
         <span className="uni-abbr">{uni.name}</span>
         <span className="uni-full">{uni.full}</span>
         <span className={`uni-type-badge uni-type-badge--${uni.type}`}>
-          {uni.type === 'nacional' ? 'Nacional' : uni.type === 'privada' ? 'Privada' : uni.type === 'provincial' ? 'Provincial' : 'Instituto'}
+          {uni.type === 'nacional' ? 'Nacional' : uni.type === 'utn' ? 'UTN Regional' : uni.type === 'privada' ? 'Privada' : uni.type === 'provincial' ? 'Provincial' : 'Instituto'}
         </span>
       </motion.div>
     </FadeIn>
@@ -461,7 +461,8 @@ export default function App() {
           </FadeIn>
           <FadeIn delay={0.1}>
             <p className="section-subtitle">
-              {UNIVERSITIES.filter(u => u.type === 'nacional').length} universidades nacionales,{' '}
+              {UNIVERSITIES.filter(u => u.type === 'nacional').length} nacionales,{' '}
+              {UNIVERSITIES.filter(u => u.type === 'utn').length} facultades regionales UTN,{' '}
               {UNIVERSITIES.filter(u => u.type === 'privada').length} privadas y{' '}
               {UNIVERSITIES.filter(u => u.type === 'provincial' || u.type === 'instituto').length} provinciales/institutos.
               Si la tuya no está, podés agregarla.
@@ -473,6 +474,7 @@ export default function App() {
               {[
                 { key: 'todas',      label: `Todas (${UNIVERSITIES.length})` },
                 { key: 'nacional',   label: `Nacionales (${UNIVERSITIES.filter(u => u.type === 'nacional').length})` },
+                { key: 'utn',        label: `UTN Regionales (${UNIVERSITIES.filter(u => u.type === 'utn').length})` },
                 { key: 'privada',    label: `Privadas (${UNIVERSITIES.filter(u => u.type === 'privada').length})` },
                 { key: 'provincial', label: `Provinciales (${UNIVERSITIES.filter(u => u.type === 'provincial').length})` },
               ].map(f => (
