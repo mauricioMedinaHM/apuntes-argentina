@@ -43,6 +43,11 @@ const fmt = b => !b ? '' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 10
 const relDate = d => { if (!d) return ''; const s = (Date.now() - new Date(d)) / 1000; if (s < 3600) return 'hace ' + Math.floor(s / 60) + ' min'; if (s < 86400) return 'hace ' + Math.floor(s / 3600) + 'h'; if (s < 604800) return 'hace ' + Math.floor(s / 86400) + 'd'; return new Date(d).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) }
 const fileExt  = n => (n?.split('.').pop()?.toUpperCase() ?? 'FILE')
 
+// Hace que un elemento clickeable (div) se active también con Enter/Espacio (teclado)
+const activateOnKey = onActivate => e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onActivate() }
+}
+
 // Logo oficial de Google Drive (a color)
 const DriveIcon = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
@@ -102,6 +107,7 @@ function RateRow({ fileKey, onRate, voted }) {
       <span className="ap-rate-lbl">Puntuar:</span>
       {[1,2,3,4,5].map(n => (
         <button key={n} className="ap-rate-star"
+          aria-label={`Puntuar con ${n} estrella${n > 1 ? 's' : ''}`}
           onMouseEnter={() => setHover(n)} onMouseLeave={() => setHover(0)}
           onClick={() => onRate(fileKey, n)}>
           <Star size={13} fill={hover >= n ? 'currentColor' : 'none'}
@@ -142,7 +148,7 @@ function UniSelector({ onSelect, onBack, favUnis, treeUnis }) {
           <input ref={ref} className="ap-unisel-inp"
             placeholder="Ej: UBA, Córdoba, Ingeniería, Tucumán…"
             value={q} onChange={e => setQ(e.target.value)} />
-          {q && <button className="ap-unisel-x" onClick={() => { setQ(''); ref.current?.focus() }}><X size={15}/></button>}
+          {q && <button className="ap-unisel-x" aria-label="Borrar búsqueda" onClick={() => { setQ(''); ref.current?.focus() }}><X size={15}/></button>}
         </div>
         <p className="ap-unisel-hint">{list.length} universidad{list.length !== 1 ? 'es' : ''}{q ? ` · "${q}"` : ''}</p>
       </div>
@@ -283,6 +289,8 @@ export default function ApuntesPage({ onBack }) {
   const goUni = name => { setUni(name); setCareer(null); setSubject(null); setQueue([]); setCreating(null); setDrivePath([]) }
   const goCareer = c => { setCareer(c); setSubject(null); setQueue([]); setCreating(null); setDrivePath([]) }
   const goSubject = s => { setSubject(s); setQueue([]); setCreating(null); setDrivePath([]) }
+  // Volver al nivel de carreras de la universidad actual (desde la ruta)
+  const goToUniRoot = () => { setCareer(null); setSubject(null); setDrivePath([]); setCreating(null); setQueue([]) }
 
   // Navegación dentro de carpetas de Drive
   const enterDriveFolder = item => setDrivePath(p => [...p, { driveId: item.driveId, folderId: item.folderId, name: item.name, sig: item.sig }])
@@ -616,6 +624,9 @@ export default function ApuntesPage({ onBack }) {
     <>
     <div className="ap-root">
 
+      {/* ── Header pegajoso: barra de acciones + ruta de navegación ── */}
+      <div className="ap-header">
+
       {/* ── Top bar ── */}
       <div className="ap-bar">
         <button className="ap-btn-back" onClick={goBack}>
@@ -623,12 +634,8 @@ export default function ApuntesPage({ onBack }) {
           <span className="ap-btn-back-txt">{subject ? career : career ? uni : 'Universidades'}</span>
         </button>
 
-        {/* Breadcrumb */}
-        <div className="ap-crumb">
-          <span className="ap-crumb-uni">{uni}</span>
-          {career  && <><ChevronRight size={12}/><span>{career}</span></>}
-          {subject && <><ChevronRight size={12}/><span className="ap-crumb-cur">{subject}</span></>}
-        </div>
+        {/* Espaciador — empuja puntos y acciones a la derecha */}
+        <div className="ap-bar-spacer" />
 
         {/* Points badge */}
         <div className="ap-points-wrap">
@@ -667,6 +674,31 @@ export default function ApuntesPage({ onBack }) {
         </div>
       </div>
 
+      {/* ── Ruta de navegación clickeable (siempre visible, también en mobile) ── */}
+      <nav className="ap-crumb-strip" aria-label="Dónde estás">
+        <button className="ap-crumb-seg ap-crumb-home" onClick={() => setUni(null)}>
+          <FolderOpen size={14} aria-hidden="true" /> Universidades
+        </button>
+        <ChevronRight size={14} className="ap-crumb-sep" aria-hidden="true" />
+        {career
+          ? <button className="ap-crumb-seg" onClick={goToUniRoot}>{uni}</button>
+          : <span className="ap-crumb-seg ap-crumb-here" aria-current="page">{uni}</span>}
+        {career && <>
+          <ChevronRight size={14} className="ap-crumb-sep" aria-hidden="true" />
+          {subject
+            ? <button className="ap-crumb-seg" onClick={() => goCareer(career)}>{career}</button>
+            : <span className="ap-crumb-seg ap-crumb-here" aria-current="page">{career}</span>}
+        </>}
+        {subject && <>
+          <ChevronRight size={14} className="ap-crumb-sep" aria-hidden="true" />
+          {drivePath.length > 0
+            ? <button className="ap-crumb-seg" onClick={() => setDrivePath([])}>{subject}</button>
+            : <span className="ap-crumb-seg ap-crumb-here" aria-current="page">{subject}</span>}
+        </>}
+      </nav>
+
+      </div>{/* /ap-header */}
+
       {/* ── Content area ── */}
       <div className="ap-content">
 
@@ -686,7 +718,7 @@ export default function ApuntesPage({ onBack }) {
                   <button className="ap-drive-confirm" onClick={importCareerDrive} disabled={!careerImport.url.trim() || importing}>
                     {importing ? <><Loader size={14} className="ap-spin"/> Importando…</> : <><Check size={14}/> Importar materias</>}
                   </button>
-                  <button className="ap-drive-cancel" onClick={() => setCareerImport(null)} disabled={importing}><X size={14}/></button>
+                  <button className="ap-drive-cancel" aria-label="Cancelar" onClick={() => setCareerImport(null)} disabled={importing}><X size={14}/></button>
                 </div>
               </div>
             ) : (
@@ -859,7 +891,7 @@ export default function ApuntesPage({ onBack }) {
                       <button className="ap-drive-confirm" onClick={addDriveLink} disabled={!driveForm.name.trim() || !driveForm.url.trim()}>
                         <Check size={14}/> Agregar carpeta
                       </button>
-                      <button className="ap-drive-cancel" onClick={() => setDriveForm(null)}><X size={14}/></button>
+                      <button className="ap-drive-cancel" aria-label="Cancelar" onClick={() => setDriveForm(null)}><X size={14}/></button>
                     </div>
                   </div>
                 ) : (
@@ -907,7 +939,7 @@ export default function ApuntesPage({ onBack }) {
                         {e.status==='error' && <span className="ap-qrow-err">{e.error}</span>}
                       </div>
                       <div className="ap-qrow-end">
-                        {e.status==='pending'   && <><button className="ap-q-go" onClick={()=>uploadOne(e)}><Upload size={12}/></button><button className="ap-q-rm" onClick={()=>setQueue(p=>p.filter(x=>x.id!==e.id))}><X size={12}/></button></>}
+                        {e.status==='pending'   && <><button className="ap-q-go" aria-label="Subir este archivo" onClick={()=>uploadOne(e)}><Upload size={12}/></button><button className="ap-q-rm" aria-label="Quitar de la cola" onClick={()=>setQueue(p=>p.filter(x=>x.id!==e.id))}><X size={12}/></button></>}
                         {e.status==='uploading' && <Loader size={14} className="ap-spin"/>}
                         {e.status==='done'      && <Check size={16} className="ap-q-done"/>}
                         {e.status==='error'     && <button className="ap-q-retry" onClick={()=>uploadOne(e)}>Reintentar</button>}
@@ -930,7 +962,7 @@ export default function ApuntesPage({ onBack }) {
                     <Search size={14} className="ap-si-icon"/>
                     <input className="ap-si-input" placeholder="Buscar en esta materia…"
                       value={search} onChange={e => setSearch(e.target.value)}/>
-                    {search && <button className="ap-si-x" onClick={()=>setSearch('')}><X size={13}/></button>}
+                    {search && <button className="ap-si-x" aria-label="Borrar búsqueda" onClick={()=>setSearch('')}><X size={13}/></button>}
                   </div>
                 )}
                 {visFiles.length === 0 && !filesLoad && (
@@ -948,6 +980,7 @@ export default function ApuntesPage({ onBack }) {
                         <motion.div key={f.id} className="ap-file ap-file--drive ap-file--clickable"
                           initial={{opacity:0,x:-6}} animate={{opacity:1,x:0}} transition={{delay:i*0.04}}
                           onClick={() => window.open(f.url, '_blank', 'noopener')}
+                          role="button" tabIndex={0} onKeyDown={activateOnKey(() => window.open(f.url, '_blank', 'noopener'))}
                           title="Abrir carpeta en Google Drive">
                           <div className="ap-file-ext ap-file-ext--drive">
                             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
@@ -978,6 +1011,7 @@ export default function ApuntesPage({ onBack }) {
                         <motion.div key={f.id} className="ap-file ap-file--drive ap-file--clickable"
                           initial={{opacity:0,x:-6}} animate={{opacity:1,x:0}} transition={{delay:i*0.04}}
                           onClick={() => enterDriveFolder(f)}
+                          role="button" tabIndex={0} onKeyDown={activateOnKey(() => enterDriveFolder(f))}
                           title="Abrir carpeta">
                           <div className="ap-file-ext ap-file-ext--drive">
                             <FolderOpen size={20}/>
@@ -1001,6 +1035,7 @@ export default function ApuntesPage({ onBack }) {
                         <motion.div key={f.id} className="ap-file ap-file--clickable"
                           initial={{opacity:0,x:-6}} animate={{opacity:1,x:0}} transition={{delay:i*0.04}}
                           onClick={() => setPreview(f)}
+                          role="button" tabIndex={0} onKeyDown={activateOnKey(() => setPreview(f))}
                           title="Previsualizar archivo de Drive">
                           <div className="ap-file-ext">{(f.kind || 'file').toUpperCase()}</div>
                           <div className="ap-file-info">
@@ -1025,6 +1060,7 @@ export default function ApuntesPage({ onBack }) {
                       <motion.div key={f.key} className="ap-file ap-file--clickable"
                         initial={{opacity:0,x:-6}} animate={{opacity:1,x:0}} transition={{delay:i*0.04}}
                         onClick={() => setPreview(f)}
+                        role="button" tabIndex={0} onKeyDown={activateOnKey(() => setPreview(f))}
                         title="Hacer click para previsualizar">
                         <div className="ap-file-ext">{fileExt(f.name)}</div>
                         <div className="ap-file-info">

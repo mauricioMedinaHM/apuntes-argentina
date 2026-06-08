@@ -61,9 +61,11 @@ button {
   background: none;
 }
 
-/* Visible focus ring for keyboard users */
+/* Anillo de foco para teclado — celeste: se ve sobre fondo navy y sobre claro */
 :focus-visible {
-  outline: 2px solid var(--color-secondary);
+  outline: 3px solid var(--color-celeste);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
+/* No mostrar el anillo en clicks de mouse (solo teclado) */
+:focus:not(:focus-visible) { outline: none; }

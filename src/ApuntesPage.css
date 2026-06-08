@@ -18,14 +18,41 @@
 /* ── Top bar ── */
 .ap-root { min-height: 100vh; background: var(--color-bg); display: flex; flex-direction: column; font-family: var(--font-body); }
 
+/* Header pegajoso: barra de acciones + ruta de navegación, juntas arriba */
+.ap-header { position: sticky; top: 0; z-index: 40; }
+
 .ap-bar {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: max(14px, var(--safe-top, 14px)) 24px 14px;
   background: var(--color-primary);
-  position: sticky; top: 0; z-index: 40;
 }
+.ap-bar-spacer { flex: 1; min-width: 0; }
+
+/* ── Ruta de navegación clickeable (breadcrumb amigable) ── */
+.ap-crumb-strip {
+  display: flex; align-items: center; gap: 2px;
+  padding: 7px 16px;
+  background: var(--color-white);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.ap-crumb-strip::-webkit-scrollbar { display: none; }
+.ap-crumb-seg {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  font-size: 0.84rem; font-weight: 600; color: var(--color-secondary);
+  padding: 7px 11px; border-radius: 9px; white-space: nowrap;
+  min-height: 38px;                         /* objetivo táctil cómodo */
+  transition: background 0.14s, color 0.14s;
+}
+button.ap-crumb-seg:hover  { background: rgba(35,53,92,0.07); color: var(--color-primary); }
+button.ap-crumb-seg:active { background: rgba(35,53,92,0.13); }
+.ap-crumb-home { color: var(--color-celeste); }
+.ap-crumb-here { color: var(--color-primary); font-weight: 800; cursor: default; }
+.ap-crumb-sep  { color: var(--color-border); flex-shrink: 0; }
 
 .ap-btn-back {
   display: inline-flex; align-items: center; gap: 6px;
@@ -854,9 +881,11 @@
 
   .ap-bar { gap: 8px; padding: max(10px, var(--safe-top, 10px)) 12px 10px; }
 
-  /* El breadcrumb y el logo son redundantes en mobile (ya está el botón volver + título) */
-  .ap-crumb { display: none; }
+  /* El logo de la uni es redundante en mobile (ya está en la ruta + título) */
   .ap-bar-logo { display: none; }
+  /* La ruta de navegación se queda — es clave para orientarse en mobile */
+  .ap-crumb-strip { padding: 6px 12px; }
+  .ap-crumb-seg { padding: 7px 9px; font-size: 0.82rem; }
 
   /* Botón volver compacto, con el nombre recortado */
   .ap-btn-back { padding: 7px 10px; font-size: 0.78rem; max-width: 42vw; }
