@@ -31,6 +31,23 @@ function getFileInfo(name = '') {
 
 // ── Preview content by type ────────────────────────────────────────────────
 function PreviewContent({ file }) {
+  // Archivo de Google Drive: usa el preview embebido de Drive
+  if (file.type === 'drive-file') {
+    return (
+      <iframe
+        className="pv-iframe"
+        src={file.previewUrl}
+        title={file.name}
+        allow="autoplay"
+      >
+        <p className="pv-fallback">
+          No se puede previsualizar.{' '}
+          <a href={file.viewUrl} target="_blank" rel="noreferrer">Abrir en Drive</a>
+        </p>
+      </iframe>
+    )
+  }
+
   const { type } = getFileInfo(file.name)
   const previewUrl = `${API}/preview?key=${encodeURIComponent(file.key)}`
 
@@ -101,8 +118,9 @@ export default function PreviewModal({ file, onClose }) {
     if (e.target === overlayRef.current) onClose()
   }
 
-  const downloadUrl = `${API}/download?key=${encodeURIComponent(file.key)}`
-  const { label } = getFileInfo(file.name)
+  const isDrive = file.type === 'drive-file'
+  const downloadUrl = isDrive ? file.viewUrl : `${API}/download?key=${encodeURIComponent(file.key)}`
+  const { label } = isDrive ? { label: (file.kind || 'Drive').toUpperCase() } : getFileInfo(file.name)
 
   return createPortal(
     <AnimatePresence>

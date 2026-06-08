@@ -18,11 +18,11 @@ import multer         from 'multer'
 import cors           from 'cors'
 import helmet         from 'helmet'
 import rateLimit      from 'express-rate-limit'
-import { clerkMiddleware, getAuth } from '@clerk/express'
+import { clerkMiddleware, getAuth, clerkClient } from '@clerk/express'
 import { fileTypeFromBuffer } from 'file-type'
 import {
   S3Client, PutObjectCommand, ListObjectsV2Command,
-  DeleteObjectCommand, GetObjectCommand, HeadObjectCommand,
+  DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, CopyObjectCommand,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import sharp   from 'sharp'
@@ -135,6 +135,25 @@ function requireAuthApi(req, res, next) {
   const { userId } = getAuth(req)
   if (!userId) return res.status(401).json({ error: 'Autenticación requerida' })
   next()
+}
+
+/**
+ * Verifica que el usuario logueado (JWT de Clerk) tenga rol admin.
+ * El rol se guarda en publicMetadata.role === 'admin' del usuario en Clerk.
+ */
+async function isAdminUser(req) {
+  const { userId } = getAuth(req)
+  if (!userId) return false
+  try {
+    const user = await clerkClient.users.getUser(userId)
+    return user?.publicMetadata?.role === 'admin'
+  } catch { return false }
+}
+
+/** Middleware: solo deja pasar a usuarios con rol admin */
+async function requireAdmin(req, res, next) {
+  if (await isAdminUser(req)) return next()
+  res.status(403).json({ error: 'Requiere permisos de administrador' })
 }
 
 // ── Rate limiting ─────────────────────────────────────────────────────────
@@ -278,19 +297,57 @@ async function buildTree() {
   } while (token)
 
   const tree = { universities: [], careers: {}, subjects: {} }
+
+  // Helpers que aceptan rutas parciales: solo uni, uni+carrera, o uni+carrera+materia
+  const addUni = uni => {
+    if (uni && !tree.universities.includes(uni)) tree.universities.push(uni)
+  }
+  const addCareer = (uni, career) => {
+    if (!uni) return
+    addUni(uni)
+    if (!career) return
+    if (!tree.careers[uni]) tree.careers[uni] = []
+    if (!tree.careers[uni].includes(career)) tree.careers[uni].push(career)
+  }
+  const addSubject = (uni, career, subject) => {
+    if (!uni || !career) return
+    addCareer(uni, career)
+    if (!subject) return
+    if (!tree.subjects[uni]) tree.subjects[uni] = {}
+    if (!tree.subjects[uni][career]) tree.subjects[uni][career] = []
+    if (!tree.subjects[uni][career].includes(subject)) tree.subjects[uni][career].push(subject)
+  }
+
+  // 1) Carpetas derivadas de archivos físicos en el bucket
   for (const obj of all) {
-    // Ignora archivos internos y metadata
     if (obj.Key.startsWith('_meta/') || obj.Key === 'index.json') continue
     const parts = obj.Key.split('/')
     if (parts.length < 4) continue
-    const [uni, career, subject] = parts
-    if (!tree.universities.includes(uni))              tree.universities.push(uni)
-    if (!tree.careers[uni])                            tree.careers[uni] = []
-    if (!tree.careers[uni].includes(career))           tree.careers[uni].push(career)
-    if (!tree.subjects[uni])                           tree.subjects[uni] = {}
-    if (!tree.subjects[uni][career])                   tree.subjects[uni][career] = []
-    if (!tree.subjects[uni][career].includes(subject)) tree.subjects[uni][career].push(subject)
+    addSubject(parts[0], parts[1], parts[2])
   }
+
+  // 2) Materias con links de Drive (sin archivos físicos)
+  try {
+    const links = await readMeta('_meta/drive-links.json')
+    for (const path of Object.keys(links)) {
+      const [uni, career, subject] = path.split('/')
+      addSubject(uni, career, subject)
+    }
+  } catch {}
+
+  // 3) Carpetas creadas explícitamente por las personas (persisten aunque estén vacías)
+  try {
+    const folders = await readFolders()
+    for (const path of Object.keys(folders.careers)) {
+      const [uni, career] = path.split('/')
+      addCareer(uni, career)
+    }
+    for (const path of Object.keys(folders.subjects)) {
+      const [uni, career, subject] = path.split('/')
+      addSubject(uni, career, subject)
+    }
+  } catch {}
+
   return tree
 }
 
@@ -382,6 +439,61 @@ async function writeMeta(key, data) {
   }))
 }
 
+// ── Carpetas persistidas ────────────────────────────────────────────────────
+// _meta/folders.json = { careers: { "uni/career": {by,at} }, subjects: { "uni/career/subject": {by,at} } }
+// Persiste la estructura aunque no haya archivos (borrar un archivo nunca elimina
+// la carpeta) y guarda quién la creó (para que solo el creador pueda renombrarla).
+function toFolderMap(x) {
+  if (Array.isArray(x)) { const o = {}; for (const p of x) if (typeof p === 'string') o[p] = {}; return o }  // legacy (array de paths)
+  return (x && typeof x === 'object') ? x : {}
+}
+async function readFolders() {
+  const f = await readMeta('_meta/folders.json')
+  return { careers: toFolderMap(f.careers), subjects: toFolderMap(f.subjects) }
+}
+
+/** Registra una carrera y/o materia en folders.json (idempotente), guardando el creador */
+async function registerFolders({ careerPath, subjectPath, by = '' } = {}) {
+  try {
+    const folders = await readFolders()
+    let changed = false
+    const now = new Date().toISOString()
+    if (careerPath && !folders.careers[careerPath])  { folders.careers[careerPath]   = { by, at: now }; changed = true }
+    if (subjectPath && !folders.subjects[subjectPath]) { folders.subjects[subjectPath] = { by, at: now }; changed = true }
+    if (changed) await writeMeta('_meta/folders.json', folders)
+  } catch (err) { console.error('[folders] register', err.message) }
+}
+
+/** Mueve todos los objetos de un prefijo a otro (copy + delete). Devuelve [{oldKey,newKey}] */
+async function movePrefix(oldPrefix, newPrefix) {
+  const moved = []
+  let token
+  do {
+    const res = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: oldPrefix, ContinuationToken: token }))
+    for (const o of (res.Contents ?? [])) {
+      const newKey = newPrefix + o.Key.slice(oldPrefix.length)
+      const copySource = `${BUCKET}/${o.Key.split('/').map(encodeURIComponent).join('/')}`
+      await s3.send(new CopyObjectCommand({ Bucket: BUCKET, CopySource: copySource, Key: newKey }))
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: o.Key }))
+      moved.push({ oldKey: o.Key, newKey })
+    }
+    token = res.IsTruncated ? res.NextContinuationToken : undefined
+  } while (token)
+  return moved
+}
+
+/** Renombra las keys de un meta-archivo (key→valor) que estén bajo oldPath */
+function renameMetaKeys(obj, oldPath, newPath, { prefixMatch = true } = {}) {
+  let changed = false
+  for (const k of Object.keys(obj)) {
+    if (k === oldPath || (prefixMatch && k.startsWith(oldPath + '/'))) {
+      const nk = newPath + k.slice(oldPath.length)
+      obj[nk] = obj[k]; delete obj[k]; changed = true
+    }
+  }
+  return changed
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // ROUTES
 // ══════════════════════════════════════════════════════════════════════════
@@ -413,9 +525,239 @@ app.get('/api/files', treeLimiter, async (req, res) => {
     const result = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix }))
     const files = (result.Contents ?? [])
       .filter(o => !o.Key.endsWith('/') && !o.Key.startsWith('_meta/'))
-      .map(o => ({ key: o.Key, name: o.Key.split('/').pop(), size: o.Size, lastModified: o.LastModified }))
-    res.json(files)
+      .map(o => ({ type: 'file', key: o.Key, name: o.Key.split('/').pop(), size: o.Size, lastModified: o.LastModified, owned: false }))
+
+    // Marcar los archivos del usuario logueado (para mostrarle SOLO a él el botón de borrar)
+    const { userId } = getAuth(req)
+    if (userId && files.length > 0) {
+      const uploads = await readMeta('_meta/uploads.json')
+      for (const f of files) f.owned = uploads[f.key]?.uploaderId === userId
+    }
+
+    // Carpetas de Drive registradas para esta materia
+    const links = await readMeta('_meta/drive-links.json')
+    const folders = links[`${uni}/${career}/${subject}`] ?? []
+
+    const driveItems = []
+    for (const l of folders) {
+      // Listar el contenido real de la carpeta raíz registrada (si hay GOOGLE_API_KEY)
+      const contents = await listDriveFolder(extractFolderId(l.url), { withCounts: true })
+      if (contents && (contents.files.length > 0 || contents.folders.length > 0)) {
+        // Subcarpetas → cards navegables
+        for (const fo of contents.folders) {
+          driveItems.push({
+            type: 'drive-folder',
+            id: `${l.id}:${fo.driveId}`,
+            folderId: l.id,          // id del link registrado (para borrar todo el link)
+            driveId: fo.driveId,     // id de Drive para navegar adentro
+            name: fo.name,
+            count: fo.count ?? null,
+            lastModified: fo.lastModified,
+            source: l.name,
+          })
+        }
+        // Archivos sueltos en la raíz → cards individuales
+        for (const f of contents.files) {
+          driveItems.push({
+            type: 'drive-file',
+            id: `${l.id}:${f.driveId}`,
+            folderId: l.id,
+            name: f.name,
+            kind: f.kind,
+            size: f.size,
+            lastModified: f.lastModified,
+            viewUrl: f.viewUrl,
+            previewUrl: f.previewUrl,
+            source: l.name,
+          })
+        }
+      } else {
+        // Fallback: sin API key o carpeta vacía/privada → card que abre Drive
+        driveItems.push({ type: 'drive', id: l.id, name: l.name, url: l.url, lastModified: l.addedAt })
+      }
+    }
+
+    res.json([...driveItems, ...files])
   } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+/**
+ * Contenido de una subcarpeta de Drive (para navegar adentro de una carpeta registrada).
+ * id = ID de carpeta de Drive. Solo lee contenido público vía la API key del sitio.
+ */
+app.get('/api/drive-folder', treeLimiter, async (req, res) => {
+  const driveId = typeof req.query.id === 'string' && /^[a-zA-Z0-9_-]+$/.test(req.query.id) ? req.query.id : ''
+  const folderId = typeof req.query.folderId === 'string' ? req.query.folderId : ''  // link registrado (para borrar)
+  log('GET', '/api/drive-folder', driveId)
+
+  if (!driveId) return res.status(400).json({ error: 'id de carpeta inválido' })
+
+  try {
+    const contents = await listDriveFolder(driveId, { withCounts: true })
+    if (!contents) return res.status(503).json({ error: 'No se pudo leer la carpeta de Drive' })
+
+    const items = []
+    for (const fo of contents.folders) {
+      items.push({
+        type: 'drive-folder',
+        id: `${folderId}:${fo.driveId}`,
+        folderId, driveId: fo.driveId,
+        name: fo.name, count: fo.count ?? null, lastModified: fo.lastModified,
+      })
+    }
+    for (const f of contents.files) {
+      items.push({
+        type: 'drive-file',
+        id: `${folderId}:${f.driveId}`,
+        folderId, name: f.name, kind: f.kind, size: f.size,
+        lastModified: f.lastModified, viewUrl: f.viewUrl, previewUrl: f.previewUrl,
+      })
+    }
+    res.json(items)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+/**
+ * Crear una carpeta (carrera o materia). Requiere sesión.
+ * La carpeta queda persistida en _meta/folders.json — no depende de tener archivos,
+ * así que borrar archivos nunca la elimina.
+ */
+app.post('/api/folder', requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  const uni     = sanitizePath(req.body.university)
+  const career  = sanitizePath(req.body.career)
+  const subject = sanitizePath(req.body.subject)  // opcional
+  log('POST', '/api/folder', `${uni}/${career}${subject ? '/' + subject : ''}`)
+
+  if (!uni || !career) return res.status(400).json({ error: 'university y career son requeridos' })
+
+  try {
+    await registerFolders({
+      careerPath: `${uni}/${career}`,
+      subjectPath: subject ? `${uni}/${career}/${subject}` : null,
+      by: userId,
+    })
+    await updateIndex()
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+/**
+ * Eliminar una carpeta (admin). Solo desregistra la carpeta de folders.json —
+ * NUNCA borra archivos ni links de Drive. Se rechaza si la carpeta tiene contenido,
+ * para no esconder información de nadie.
+ */
+app.delete('/api/folder', requireAuthApi, requireAdmin, async (req, res) => {
+  const uni     = sanitizePath(req.body.university)
+  const career  = sanitizePath(req.body.career)
+  const subject = sanitizePath(req.body.subject)  // opcional
+  log('DELETE', '/api/folder', `${uni}/${career}${subject ? '/' + subject : ''}`)
+
+  if (!uni || !career) return res.status(400).json({ error: 'university y career son requeridos' })
+
+  const target = subject ? `${uni}/${career}/${subject}` : `${uni}/${career}`
+
+  try {
+    // Verificar que no haya archivos físicos bajo esa ruta
+    const listed = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${target}/`, MaxKeys: 1 }))
+    const hasFiles = (listed.Contents ?? []).some(o => !o.Key.startsWith('_meta/'))
+    if (hasFiles) return res.status(409).json({ error: 'La carpeta tiene archivos. Eliminalos primero.' })
+
+    // Verificar que no haya links de Drive bajo esa ruta
+    const links = await readMeta('_meta/drive-links.json')
+    const hasDrive = Object.keys(links).some(p => p === target || p.startsWith(target + '/'))
+    if (hasDrive) return res.status(409).json({ error: 'La carpeta tiene carpetas de Drive vinculadas. Quitalas primero.' })
+
+    // Desregistrar de folders.json (la carrera arrastra sus materias)
+    const folders = await readFolders()
+    for (const p of Object.keys(folders.subjects)) if (p === target || p.startsWith(target + '/')) delete folders.subjects[p]
+    if (!subject) delete folders.careers[target]
+    await writeMeta('_meta/folders.json', folders)
+
+    await updateIndex()
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+/** Carpetas creadas por el usuario logueado (para que el front sepa cuáles puede renombrar) */
+app.get('/api/my-folders', requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  try {
+    const folders = await readFolders()
+    const mine = (map) => Object.entries(map).filter(([, m]) => m && m.by === userId).map(([p]) => p)
+    res.json({ careers: mine(folders.careers), subjects: mine(folders.subjects) })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+/**
+ * Renombrar una carpeta (carrera o materia). Solo el creador o un admin.
+ * Mueve los archivos físicos y actualiza todos los metadatos. No se pierde nada.
+ */
+app.post('/api/folder/rename', requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  const uni     = sanitizePath(req.body.university)
+  const career  = sanitizePath(req.body.career)
+  const subject = sanitizePath(req.body.subject)   // opcional → si viene, renombramos materia
+  const newName = sanitizePath(req.body.newName)
+  log('POST', '/api/folder/rename', `${uni}/${career}${subject ? '/' + subject : ''} → ${newName}`)
+
+  if (!uni || !career || !newName) return res.status(400).json({ error: 'university, career y newName son requeridos' })
+
+  const isSubject = !!subject
+  const oldPath = isSubject ? `${uni}/${career}/${subject}` : `${uni}/${career}`
+  const newPath = isSubject ? `${uni}/${career}/${newName}` : `${uni}/${newName}`
+  if (oldPath === newPath) return res.json({ success: true, unchanged: true })
+
+  try {
+    const folders = await readFolders()
+    const meta = isSubject ? folders.subjects[oldPath] : folders.careers[oldPath]
+    const admin = await isAdminUser(req)
+
+    // Permiso: el creador registrado, o un admin
+    if (!admin && !(meta && meta.by && meta.by === userId))
+      return res.status(403).json({ error: 'Solo quien creó la carpeta (o un admin) puede renombrarla' })
+
+    // Colisión: no permitir si el destino ya existe como carpeta registrada
+    const destTaken = isSubject ? !!folders.subjects[newPath] : !!folders.careers[newPath]
+    if (destTaken) return res.status(409).json({ error: 'Ya existe una carpeta con ese nombre' })
+
+    // 1) Mover archivos físicos del bucket
+    const moved = await movePrefix(`${oldPath}/`, `${newPath}/`)
+
+    // 2) Actualizar uploads.json y ratings.json (las keys cambian)
+    if (moved.length) {
+      const uploads = await readMeta('_meta/uploads.json')
+      let u = false
+      for (const m of moved) if (uploads[m.oldKey]) { uploads[m.newKey] = uploads[m.oldKey]; delete uploads[m.oldKey]; u = true }
+      if (u) await writeMeta('_meta/uploads.json', uploads)
+
+      const ratings = await readMeta('_meta/ratings.json')
+      let r = false
+      for (const m of moved) if (ratings[m.oldKey]) { ratings[m.newKey] = ratings[m.oldKey]; delete ratings[m.oldKey]; r = true }
+      if (r) await writeMeta('_meta/ratings.json', ratings)
+    }
+
+    // 3) Actualizar links de Drive (las path-keys cambian)
+    const links = await readMeta('_meta/drive-links.json')
+    if (renameMetaKeys(links, oldPath, newPath)) await writeMeta('_meta/drive-links.json', links)
+
+    // 4) Actualizar folders.json (carrera arrastra sus materias)
+    const f = await readFolders()
+    if (isSubject) {
+      f.subjects[newPath] = f.subjects[oldPath] ?? { by: userId, at: new Date().toISOString() }
+      delete f.subjects[oldPath]
+    } else {
+      f.careers[newPath] = f.careers[oldPath] ?? { by: userId, at: new Date().toISOString() }
+      delete f.careers[oldPath]
+      for (const p of Object.keys(f.subjects)) {
+        if (p.startsWith(oldPath + '/')) { f.subjects[newPath + p.slice(oldPath.length)] = f.subjects[p]; delete f.subjects[p] }
+      }
+    }
+    await writeMeta('_meta/folders.json', f)
+
+    await updateIndex()
+    res.json({ success: true, oldPath, newPath, movedFiles: moved.length })
+  } catch (err) { console.error('[rename]', err.message); res.status(500).json({ error: err.message }) }
 })
 
 // ── Nombre de archivo limpio (compartido) ──────────────────────────────────
@@ -437,6 +779,227 @@ const EXT_TO_MIME = {
   '.ppt': 'application/vnd.ms-powerpoint',
   '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// CARPETAS DE DRIVE (admin) — links externos que se muestran como contenido
+// ══════════════════════════════════════════════════════════════════════════
+
+/** Valida que la URL sea de Google Drive */
+function isDriveUrl(url) {
+  if (typeof url !== 'string') return false
+  try {
+    const u = new URL(url)
+    return /(^|\.)drive\.google\.com$/.test(u.hostname) || /(^|\.)docs\.google\.com$/.test(u.hostname)
+  } catch { return false }
+}
+
+/** Extrae el ID de carpeta de un link de Google Drive */
+function extractFolderId(url) {
+  if (typeof url !== 'string') return null
+  // .../folders/FOLDER_ID  |  ...?id=FOLDER_ID  |  .../folderview?id=FOLDER_ID
+  const m = url.match(/\/folders\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/)
+  return m ? m[1] : null
+}
+
+/** Categoría de archivo a partir del mimeType de Drive (para el badge/preview) */
+function driveKind(mimeType = '') {
+  if (mimeType.includes('pdf')) return 'pdf'
+  if (mimeType.includes('document') || mimeType.includes('msword')) return 'doc'
+  if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return 'ppt'
+  if (mimeType.includes('spreadsheet') || mimeType.includes('excel')) return 'xls'
+  if (mimeType.startsWith('image/')) return 'img'
+  if (mimeType.includes('folder')) return 'folder'
+  return 'file'
+}
+
+const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder'
+
+/** Cuenta cuántos items hay dentro de una carpeta de Drive (para el badge "(14)") */
+async function countDriveFolder(folderId) {
+  const apiKey = process.env.GOOGLE_API_KEY
+  if (!apiKey || !folderId) return null
+  try {
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`)
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&key=${apiKey}&fields=${encodeURIComponent('files(id)')}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const data = await res.json()
+    return (data.files ?? []).length
+  } catch { return null }
+}
+
+/**
+ * Lista el contenido de una carpeta pública de Drive, separando archivos y subcarpetas.
+ * Requiere GOOGLE_API_KEY (Drive API v3). Sin key, devuelve null (fallback a card).
+ * @returns {{ files: object[], folders: object[] } | null}
+ */
+async function listDriveFolder(folderId, { withCounts = false } = {}) {
+  const apiKey = process.env.GOOGLE_API_KEY
+  if (!apiKey || !folderId) return null
+  try {
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`)
+    const fields = encodeURIComponent('files(id,name,mimeType,size,modifiedTime)')
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&key=${apiKey}&fields=${fields}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`
+    const res = await fetch(url)
+    if (!res.ok) { log('DRIVE', 'list error', `${res.status}`); return null }
+    const data = await res.json()
+
+    const files = []
+    const folders = []
+    for (const f of (data.files ?? [])) {
+      if (f.mimeType === DRIVE_FOLDER_MIME) {
+        folders.push({ driveId: f.id, name: f.name, lastModified: f.modifiedTime })
+      } else {
+        files.push({
+          driveId: f.id,
+          name: f.name,
+          kind: driveKind(f.mimeType),
+          size: f.size ? Number(f.size) : null,
+          lastModified: f.modifiedTime,
+          viewUrl: `https://drive.google.com/file/d/${f.id}/view`,
+          previewUrl: `https://drive.google.com/file/d/${f.id}/preview`,
+        })
+      }
+    }
+
+    // Conteo de items por subcarpeta (cap a 30 para no explotar en llamadas)
+    if (withCounts && folders.length > 0 && folders.length <= 30) {
+      const counts = await Promise.all(folders.map(fo => countDriveFolder(fo.driveId)))
+      folders.forEach((fo, i) => { fo.count = counts[i] })
+    }
+
+    return { files, folders }
+  } catch (err) { log('DRIVE', 'list exception', err.message); return null }
+}
+
+/** GET — el cliente pregunta si su usuario tiene rol admin (para mostrar la UI) */
+app.get('/api/admin/check', requireAuthApi, async (req, res) => {
+  res.json({ ok: await isAdminUser(req) })
+})
+
+/** DELETE — admin borra CUALQUIER archivo del vault (sin requerir ownership) */
+app.delete('/api/admin/file', requireAuthApi, requireAdmin, async (req, res) => {
+
+  const rawKey = req.body.key
+  const key    = sanitizeKey(rawKey)
+  log('DELETE', '/api/admin/file', key)
+
+  if (!key) return res.status(400).json({ error: 'key inválido' })
+  if (typeof rawKey === 'string' && (rawKey.startsWith('_meta/') || rawKey === 'index.json'))
+    return res.status(403).json({ error: 'No se puede eliminar archivos internos del sistema' })
+
+  try {
+    await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }))
+    // Limpiar el registro de uploads si existe
+    const uploads = await readMeta('_meta/uploads.json')
+    if (uploads[rawKey]) { delete uploads[rawKey]; await writeMeta('_meta/uploads.json', uploads) }
+    await updateIndex()
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+/** POST — agrega una carpeta de Drive a una materia (solo admin) */
+app.post('/api/drive-link', requireAuthApi, requireAdmin, async (req, res) => {
+
+  const uni     = sanitizePath(req.body.university)
+  const career  = sanitizePath(req.body.career)
+  const subject = sanitizePath(req.body.subject)
+  const name    = (typeof req.body.name === 'string' ? req.body.name : '').trim().slice(0, 120)
+  const url     = (typeof req.body.url === 'string' ? req.body.url : '').trim()
+
+  log('POST', '/api/drive-link', `${uni}/${career}/${subject} — ${name}`)
+
+  if (!uni || !career || !subject) return res.status(400).json({ error: 'university, career y subject son requeridos' })
+  if (!name)         return res.status(400).json({ error: 'Falta el nombre de la carpeta' })
+  if (!isDriveUrl(url)) return res.status(400).json({ error: 'El link debe ser de Google Drive' })
+
+  try {
+    const links = await readMeta('_meta/drive-links.json')
+    const pathKey = `${uni}/${career}/${subject}`
+    if (!links[pathKey]) links[pathKey] = []
+    const item = { id: randomBytes(8).toString('hex'), name, url, addedAt: new Date().toISOString() }
+    links[pathKey].push(item)
+    await writeMeta('_meta/drive-links.json', links)
+    // Persistir la carpeta para que la materia no dependa solo del link
+    await registerFolders({ careerPath: `${uni}/${career}`, subjectPath: pathKey, by: getAuth(req).userId })
+    await updateIndex()
+    res.json({ success: true, item })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+/**
+ * POST — importa una carpeta de Drive de CARRERA completa (solo admin).
+ * Cada subcarpeta del Drive se convierte en una materia con su Drive vinculado.
+ * Reusa toda la maquinaria de links a nivel materia.
+ */
+app.post('/api/drive-career', requireAuthApi, requireAdmin, async (req, res) => {
+  const { userId } = getAuth(req)
+  const uni    = sanitizePath(req.body.university)
+  const career = sanitizePath(req.body.career)
+  const url    = (typeof req.body.url === 'string' ? req.body.url : '').trim()
+  log('POST', '/api/drive-career', `${uni}/${career} — ${url}`)
+
+  if (!uni || !career)  return res.status(400).json({ error: 'university y career son requeridos' })
+  if (!isDriveUrl(url))  return res.status(400).json({ error: 'El link debe ser de Google Drive' })
+
+  const folderId = extractFolderId(url)
+  if (!folderId) return res.status(400).json({ error: 'El link debe ser de una carpeta de Drive (con /folders/...)' })
+
+  try {
+    const contents = await listDriveFolder(folderId)
+    if (!contents) return res.status(503).json({ error: 'No se pudo leer la carpeta. ¿Está compartida como "cualquiera con el enlace"?' })
+    if (contents.folders.length === 0)
+      return res.status(400).json({ error: 'La carpeta no tiene subcarpetas. Para una sola materia usá "Agregar carpeta de Drive" dentro de la materia.' })
+
+    const links = await readMeta('_meta/drive-links.json')
+    const created = [], skipped = []
+    for (const fo of contents.folders) {
+      const subjectName = sanitizePath(fo.name)
+      if (!subjectName) continue
+      const pathKey = `${uni}/${career}/${subjectName}`
+      const subUrl  = `https://drive.google.com/drive/folders/${fo.driveId}`
+      if (!links[pathKey]) links[pathKey] = []
+      if (links[pathKey].some(l => l.url === subUrl)) { skipped.push(subjectName); continue }  // ya importada
+      links[pathKey].push({ id: randomBytes(8).toString('hex'), name: fo.name, url: subUrl, addedAt: new Date().toISOString(), group: folderId })
+      created.push(subjectName)
+    }
+    await writeMeta('_meta/drive-links.json', links)
+
+    // Persistir todas las materias creadas en folders.json de una sola vez
+    const folders = await readFolders()
+    const now = new Date().toISOString()
+    if (!folders.careers[`${uni}/${career}`]) folders.careers[`${uni}/${career}`] = { by: userId, at: now }
+    for (const s of created) if (!folders.subjects[`${uni}/${career}/${s}`]) folders.subjects[`${uni}/${career}/${s}`] = { by: userId, at: now }
+    await writeMeta('_meta/folders.json', folders)
+
+    await updateIndex()
+    res.json({ success: true, created: created.length, skipped: skipped.length, materias: created })
+  } catch (err) { console.error('[drive-career]', err.message); res.status(500).json({ error: err.message }) }
+})
+
+/** DELETE — elimina una carpeta de Drive por id (solo admin) */
+app.delete('/api/drive-link', requireAuthApi, requireAdmin, async (req, res) => {
+
+  const uni     = sanitizePath(req.body.university)
+  const career  = sanitizePath(req.body.career)
+  const subject = sanitizePath(req.body.subject)
+  const id      = typeof req.body.id === 'string' ? req.body.id : ''
+  log('DELETE', '/api/drive-link', `${uni}/${career}/${subject} — ${id}`)
+
+  if (!uni || !career || !subject || !id) return res.status(400).json({ error: 'Parámetros incompletos' })
+
+  try {
+    const links = await readMeta('_meta/drive-links.json')
+    const pathKey = `${uni}/${career}/${subject}`
+    if (links[pathKey]) {
+      links[pathKey] = links[pathKey].filter(l => l.id !== id)
+      if (links[pathKey].length === 0) delete links[pathKey]
+      await writeMeta('_meta/drive-links.json', links)
+      await updateIndex()
+    }
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
 
 /**
  * Paso 1 — Genera una URL prefirmada para subir DIRECTO a R2.
@@ -494,6 +1057,11 @@ app.post('/api/confirm-upload', requireAuthApi, async (req, res) => {
       data[key] = { uploaderId: userId, uploadedAt: new Date().toISOString() }
       return writeMeta('_meta/uploads.json', data)
     })
+
+    // Persistir la carpeta para que borrar el archivo no elimine la materia
+    const [fu, fc, fs] = key.split('/')
+    if (fu && fc && fs) await registerFolders({ careerPath: `${fu}/${fc}`, subjectPath: `${fu}/${fc}/${fs}`, by: userId })
+
     await updateIndex()
 
     res.json({ success: true, key, name: key.split('/').pop(), size })
