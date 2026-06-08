@@ -9,6 +9,7 @@ import {
 import { useAuth, useUser, SignInButton } from '@clerk/react'
 import { UNIVERSITIES, FACULTIES } from './universities.js'
 import { getDeviceId, getPoints, addPoints, markOwned, isOwned, unmarkOwned } from './device.js'
+import { compressImage } from './compress.js'
 import PreviewModal from './PreviewModal.jsx'
 import './PreviewModal.css'
 
@@ -180,7 +181,7 @@ function UCard({ u, live, onSelect, fav }) {
       onClick={() => onSelect(u.name)} whileHover={{ y:-3, boxShadow:'0 8px 24px rgba(35,53,92,0.13)' }} transition={{ duration:0.14 }}>
       <div className="ap-ucard-logo">
         {u.logo
-          ? <img src={u.logo} alt={u.name} className="ap-ucard-img" onError={e => { e.currentTarget.style.display='none'; e.currentTarget.nextSibling.style.display='flex' }}/>
+          ? <img src={u.logo} alt={u.name} className="ap-ucard-img" loading="lazy" decoding="async" onError={e => { e.currentTarget.style.display='none'; e.currentTarget.nextSibling.style.display='flex' }}/>
           : null}
         <span className="ap-ucard-badge" style={{ background: u.color, display: u.logo ? 'none' : 'flex' }}>{u.name}</span>
       </div>
@@ -356,11 +357,15 @@ export default function ApuntesPage({ onBack }) {
       const token = await getToken()
       const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
 
+      // Optimización: comprimir imágenes en el navegador antes de subir (el archivo
+      // va directo a R2, así que es el único lugar donde se puede optimizar).
+      const file = await compressImage(entry.file)
+
       // Paso 1: URL prefirmada (request chico, sin el archivo)
       const urlRes = await fetch(`${API}/upload-url`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ university: uni, career, subject, filename: entry.file.name, size: entry.file.size }),
+        body: JSON.stringify({ university: uni, career, subject, filename: file.name, size: file.size }),
       })
       if (!urlRes.ok) throw new Error(await readErr(urlRes))
       const { uploadUrl, key, name, contentType } = await urlRes.json()
@@ -374,7 +379,7 @@ export default function ApuntesPage({ onBack }) {
         xhr.upload.onprogress = ev => { if (ev.lengthComputable) setProg(20 + Math.round((ev.loaded / ev.total) * 70)) }
         xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error('No se pudo subir el archivo al almacenamiento'))
         xhr.onerror = () => reject(new Error('Error de red al subir el archivo'))
-        xhr.send(entry.file)
+        xhr.send(file)
       })
       setProg(92)
 
