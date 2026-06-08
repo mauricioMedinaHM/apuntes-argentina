@@ -51,6 +51,17 @@
 .ap-bar-end {
   display: flex; align-items: center; gap: 10px; flex-shrink: 0;
 }
+/* Botón de reportar bug */
+.ap-report-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.16);
+  color: rgba(255,255,255,0.8); text-decoration: none;
+  font-size: 0.78rem; font-weight: 600; font-family: inherit;
+  padding: 6px 12px; border-radius: 8px;
+  transition: all 0.15s; white-space: nowrap;
+}
+.ap-report-btn:hover { background: rgba(255,255,255,0.2); color: #fff; }
+@media (max-width: 600px) { .ap-report-txt { display: none; } .ap-report-btn { padding: 6px 8px; } }
 /* Logo en pill blanco para que se vea sobre el fondo navy */
 .ap-bar-logo {
   height: 24px; max-width: 80px; object-fit: contain;
@@ -103,6 +114,21 @@
 }
 .ap-bk-btn:hover { color: rgba(255,255,255,0.9); }
 .ap-bk-btn--on   { color: #FCBF49; }
+
+/* Texto del botón volver (se recorta en mobile) */
+.ap-btn-back-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Marquee: nombres largos que se deslizan suavemente ── */
+.ap-mq { display: block; overflow: hidden; white-space: nowrap; }
+.ap-mq > span { display: inline-block; white-space: nowrap; will-change: transform; }
+.ap-mq-run { animation: ap-mq-slide var(--mq-dur, 7s) ease-in-out infinite alternate; }
+@keyframes ap-mq-slide {
+  0%, 14%   { transform: translateX(0); }
+  86%, 100% { transform: translateX(var(--mq-shift, 0)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ap-mq-run { animation: none; }
+}
 
 /* ── Content ── */
 .ap-content {
@@ -219,6 +245,7 @@
   position: relative;
   text-align: left;
   min-height: 72px;
+  min-width: 0; overflow: hidden;   /* nombre largo no desborda la card */
 }
 .ap-folder-card:hover {
   border-color: var(--color-primary);
@@ -277,6 +304,21 @@
 }
 .ap-bk-mini:hover { color: var(--color-primary); }
 .ap-bk-mini--on { color: #C8A800; }
+
+.ap-folder-actions {
+  position: absolute; top: 8px; right: 8px;
+  display: flex; align-items: center; gap: 4px;
+  background: var(--color-white); border-radius: 8px; padding: 2px;
+}
+.ap-folder-card--fav .ap-folder-actions { background: #FBF6EC; }
+.ap-folder-actions .ap-bk-mini { position: static; top: auto; right: auto; }
+.ap-folder-del, .ap-folder-edit {
+  background: none; border: none; cursor: pointer;
+  color: var(--color-border); padding: 3px; border-radius: 4px;
+  display: flex; align-items: center; transition: all 0.15s; font-family: inherit;
+}
+.ap-folder-del:hover { color: #DC2626; background: rgba(220,38,38,0.1); }
+.ap-folder-edit:hover { color: var(--color-celeste); background: rgba(116,172,223,0.12); }
 
 /* Suggestions */
 .ap-suggestions {
@@ -565,11 +607,71 @@
   border: 1px solid rgba(116,172,223,0.3);
   padding: 2px 8px; border-radius: 6px; letter-spacing: 0.02em;
 }
+.ap-drive-badge--sm { font-size: 0.64rem; padding: 1px 7px; }
 .ap-dl--drive { background: var(--color-celeste); color: var(--color-primary); }
 .ap-dl--drive:hover { background: #5b9bd1; }
+.ap-drive-chevron { color: var(--color-border); align-self: center; }
+.ap-file--drive:hover .ap-drive-chevron { color: var(--color-celeste); }
 
-/* ── Admin: agregar carpeta de Drive ── */
-.ap-bk-btn--admin { color: var(--color-celeste); }
+/* ── Breadcrumb de navegación dentro de Drive ── */
+.ap-drive-crumb {
+  display: flex; align-items: center; gap: 14px;
+  margin-bottom: 4px; flex-wrap: wrap;
+}
+.ap-drive-crumb-back {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--color-bg); border: 1px solid var(--color-border);
+  color: var(--color-secondary); font-size: 0.8rem; font-weight: 600;
+  padding: 6px 12px; border-radius: 8px; cursor: pointer; font-family: inherit;
+  transition: all 0.15s; flex-shrink: 0;
+}
+.ap-drive-crumb-back:hover { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.ap-drive-crumb-path {
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  font-size: 0.82rem; color: var(--color-secondary);
+}
+.ap-drive-crumb-seg { display: inline-flex; align-items: center; gap: 4px; }
+.ap-drive-crumb-link {
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  color: var(--color-secondary); font-size: 0.82rem; padding: 2px 4px; border-radius: 5px;
+}
+.ap-drive-crumb-link:hover { color: var(--color-primary); background: rgba(35,53,92,0.06); }
+.ap-drive-crumb-cur { color: var(--color-primary); font-weight: 700; }
+
+/* ── Admin: carpetas de Drive vinculadas ── */
+.ap-drive-linked {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 14px; background: rgba(116,172,223,0.07);
+  border: 1px solid rgba(116,172,223,0.25); border-radius: 12px;
+}
+.ap-drive-linked-lbl {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.76rem; font-weight: 700; color: var(--color-secondary);
+}
+.ap-drive-linked-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.78rem; font-weight: 600; color: var(--color-primary);
+  background: var(--color-white); border: 1px solid var(--color-border);
+  padding: 4px 6px 4px 11px; border-radius: 100px;
+}
+.ap-drive-linked-chip button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(220,38,38,0.08); border: none; cursor: pointer; color: #DC2626;
+  font-family: inherit; transition: all 0.14s;
+}
+.ap-drive-linked-chip button:hover { background: #DC2626; color: #fff; }
+
+/* ── Admin ── */
+.ap-admin-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(252,191,73,0.18);
+  border: 1px solid rgba(252,191,73,0.45);
+  color: #FCBF49;
+  font-size: 0.72rem; font-weight: 700;
+  padding: 5px 10px; border-radius: 100px;
+  white-space: nowrap; flex-shrink: 0;
+}
 
 .ap-admin-box { margin-top: -4px; }
 
@@ -583,6 +685,13 @@
   cursor: pointer; font-family: inherit; transition: all 0.15s;
 }
 .ap-admin-add-drive:hover { background: rgba(116,172,223,0.18); border-color: var(--color-celeste); }
+
+/* Importar carrera completa desde Drive */
+.ap-career-import { margin-bottom: 16px; }
+.ap-career-import-hint {
+  font-size: 0.8rem; color: var(--color-secondary); line-height: 1.45; margin: -2px 0 2px;
+}
+.ap-career-import-hint b { color: var(--color-primary); }
 
 .ap-drive-form {
   background: var(--color-white);
@@ -693,7 +802,10 @@
   border: 1.5px solid var(--color-border);
   border-radius: 14px;
   cursor: pointer; text-align: left; font-family: inherit;
-  transition: border-color 0.14s; width: 100%;
+  transition: border-color 0.14s;
+  width: 100%; min-width: 0;       /* no estirar la card por el nombre largo */
+  min-height: 68px;                /* todas las cards con la misma altura */
+  overflow: hidden;
 }
 .ap-ucard:hover { border-color: var(--color-secondary); }
 .ap-ucard--fav  { border-color: rgba(200,168,0,0.4); background: rgba(252,191,73,0.04); }
@@ -732,6 +844,32 @@
   .ap-unisel-head { padding: 14px 16px 22px; flex-direction: column; gap: 12px; }
   .ap-unisel-sticky { padding: 12px 16px 8px; }
   .ap-unisel-sec { padding: 14px 16px 0; }
-  .ap-unisel-grid { grid-template-columns: 1fr; gap: 8px; }
+  .ap-unisel-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .ap-ucard { padding: 12px 14px; }
+}
+
+/* ── Barra superior en teléfono: que nada se salga ── */
+@media (max-width: 640px) {
+  .ap-root { overflow-x: hidden; }
+
+  .ap-bar { gap: 8px; padding: max(10px, var(--safe-top, 10px)) 12px 10px; }
+
+  /* El breadcrumb y el logo son redundantes en mobile (ya está el botón volver + título) */
+  .ap-crumb { display: none; }
+  .ap-bar-logo { display: none; }
+
+  /* Botón volver compacto, con el nombre recortado */
+  .ap-btn-back { padding: 7px 10px; font-size: 0.78rem; max-width: 42vw; }
+
+  /* Empuja puntos + acciones a la derecha */
+  .ap-points-wrap { margin-left: auto; }
+  .ap-points-badge { padding: 4px 8px; font-size: 0.72rem; }
+  .ap-pts-unit { display: none; }            /* muestra solo el número */
+
+  .ap-bar-end { gap: 6px; }
+  .ap-report-btn { padding: 6px 7px; }
+
+  /* Candado de admin chiquito: solo el ícono amarillo */
+  .ap-admin-txt { display: none; }
+  .ap-admin-chip { padding: 6px; gap: 0; }
 }

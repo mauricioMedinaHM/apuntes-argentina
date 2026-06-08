@@ -22,11 +22,9 @@ import { SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react'
 import VaultAnimation from './VaultAnimation'
 import MockApuntes from './MockApuntes'
 import SplashScreen, { shouldShowSplash } from './SplashScreen'
-import UploadPage from './UploadPage'
 import ApuntesPage from './ApuntesPage'
 import { UNIVERSITIES } from './universities.js'
 import './App.css'
-import './UploadPage.css'
 import './ApuntesPage.css'
 
 const MCP_TOOLS = [
@@ -167,7 +165,7 @@ function NavAuth() {
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(shouldShowSplash)
-  const [view, setView]             = useState('landing') // 'landing' | 'upload' | 'apuntes'
+  const [view, setView]             = useState('landing') // 'landing' | 'apuntes'
   const [uniFilter, setUniFilter]   = useState('todas')
   const [navOpen, setNavOpen]       = useState(false)
   const [showAllUnis, setShowAllUnis] = useState(false)
@@ -188,16 +186,9 @@ export default function App() {
   }, [view, showSplash])
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768
 
-  if (view === 'upload') {
-    return <UploadPage onBack={() => setView('landing')} />
-  }
-
   if (view === 'apuntes') {
     return (
-      <ApuntesPage
-        onBack={() => setView('landing')}
-        onUpload={() => setView('upload')}
-      />
+      <ApuntesPage onBack={() => setView('landing')} />
     )
   }
 
@@ -222,7 +213,7 @@ export default function App() {
 
           {/* Desktop actions */}
           <div className="nav-actions nav-actions--desktop">
-            <button className="nav-upload-btn" onClick={() => setView('upload')}>
+            <button className="nav-upload-btn" onClick={() => setView('apuntes')}>
               <Upload size={15} />
               Subir apunte
             </button>
@@ -253,7 +244,7 @@ export default function App() {
                 transition={{ duration: 0.2 }}
               >
                 <div className="nav-drawer-auth"><NavAuth /></div>
-                <button className="nav-drawer-item" onClick={() => { setView('upload'); setNavOpen(false) }}>
+                <button className="nav-drawer-item" onClick={() => { setView('apuntes'); setNavOpen(false) }}>
                   <Upload size={18} /> Subir apunte
                 </button>
                 <a href="https://github.com/mauricioMedinaHM/apuntes-argentina" target="_blank" rel="noopener noreferrer" className="nav-drawer-item" onClick={() => setNavOpen(false)}>
@@ -715,6 +706,7 @@ export default function App() {
               <a href="https://github.com/mauricioMedinaHM/apuntes-argentina" target="_blank" rel="noopener noreferrer">GitHub</a>
               <a href="https://github.com/mauricioMedinaHM/apuntes-argentina/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Cómo contribuir</a>
               <a href="mailto:hh.mauri2190@gmail.com">Contacto</a>
+              <a href="mailto:apuntesargentina@gmail.com?subject=Reporte%20de%20error%20%E2%80%94%20ApuntesArgentina">Reportar un error</a>
               <a
                 href="https://cafecito.app/apuntesargentina"
                 target="_blank"
