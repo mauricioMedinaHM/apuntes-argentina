@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   Search, ArrowLeft, Star, Bookmark, BookmarkCheck,
@@ -250,7 +250,7 @@ export default function ApuntesPage({ onBack }) {
     setFilesLoad(true)
     const inDrive = drivePath.length > 0
     const url = inDrive
-      ? `${API}/drive-folder?id=${encodeURIComponent(drivePath[drivePath.length - 1].driveId)}&folderId=${encodeURIComponent(drivePath[drivePath.length - 1].folderId)}`
+      ? `${API}/drive-folder?id=${encodeURIComponent(drivePath[drivePath.length - 1].driveId)}&folderId=${encodeURIComponent(drivePath[drivePath.length - 1].folderId)}&sig=${encodeURIComponent(drivePath[drivePath.length - 1].sig ?? '')}`
       : `${API}/files?university=${encodeURIComponent(uni)}&career=${encodeURIComponent(career)}&subject=${encodeURIComponent(subject)}`
     ;(async () => {
       try {
@@ -284,7 +284,7 @@ export default function ApuntesPage({ onBack }) {
   const goSubject = s => { setSubject(s); setQueue([]); setCreating(null); setDrivePath([]) }
 
   // Navegación dentro de carpetas de Drive
-  const enterDriveFolder = item => setDrivePath(p => [...p, { driveId: item.driveId, folderId: item.folderId, name: item.name }])
+  const enterDriveFolder = item => setDrivePath(p => [...p, { driveId: item.driveId, folderId: item.folderId, name: item.name, sig: item.sig }])
   const goDriveLevel = idx => setDrivePath(p => p.slice(0, idx))  // idx = cuántos niveles dejar
   const goBack = () => {
     if (subject)       { setSubject(null); setCreating(null) }

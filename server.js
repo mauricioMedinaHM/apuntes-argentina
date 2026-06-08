@@ -30,7 +30,7 @@ import JSZip   from 'jszip'
 import { writeFile, unlink } from 'fs/promises'
 import { join }       from 'path'
 import { tmpdir }     from 'os'
-import { randomBytes } from 'crypto'
+import { randomBytes, createHmac, timingSafeEqual } from 'crypto'
 
 // compress-pdf usa Ghostscript — no disponible en Vercel serverless
 const IS_SERVERLESS = !!process.env.VERCEL
@@ -543,13 +543,14 @@ app.get('/api/files', treeLimiter, async (req, res) => {
       // Listar el contenido real de la carpeta raíz registrada (si hay GOOGLE_API_KEY)
       const contents = await listDriveFolder(extractFolderId(l.url), { withCounts: true })
       if (contents && (contents.files.length > 0 || contents.folders.length > 0)) {
-        // Subcarpetas → cards navegables
+        // Subcarpetas → cards navegables (firmadas para evitar proxy abierto)
         for (const fo of contents.folders) {
           driveItems.push({
             type: 'drive-folder',
             id: `${l.id}:${fo.driveId}`,
             folderId: l.id,          // id del link registrado (para borrar todo el link)
             driveId: fo.driveId,     // id de Drive para navegar adentro
+            sig: signDriveId(fo.driveId),
             name: fo.name,
             count: fo.count ?? null,
             lastModified: fo.lastModified,
@@ -588,9 +589,12 @@ app.get('/api/files', treeLimiter, async (req, res) => {
 app.get('/api/drive-folder', treeLimiter, async (req, res) => {
   const driveId = typeof req.query.id === 'string' && /^[a-zA-Z0-9_-]+$/.test(req.query.id) ? req.query.id : ''
   const folderId = typeof req.query.folderId === 'string' ? req.query.folderId : ''  // link registrado (para borrar)
+  const sig = typeof req.query.sig === 'string' ? req.query.sig : ''
   log('GET', '/api/drive-folder', driveId)
 
   if (!driveId) return res.status(400).json({ error: 'id de carpeta inválido' })
+  // Solo se pueden navegar carpetas cuyo ID firmamos al listarlas (no es un proxy abierto)
+  if (!verifyDriveSig(driveId, sig)) return res.status(403).json({ error: 'Acceso a la carpeta no autorizado' })
 
   try {
     const contents = await listDriveFolder(driveId, { withCounts: true })
@@ -602,6 +606,7 @@ app.get('/api/drive-folder', treeLimiter, async (req, res) => {
         type: 'drive-folder',
         id: `${folderId}:${fo.driveId}`,
         folderId, driveId: fo.driveId,
+        sig: signDriveId(fo.driveId),
         name: fo.name, count: fo.count ?? null, lastModified: fo.lastModified,
       })
     }
@@ -799,6 +804,19 @@ function extractFolderId(url) {
   // .../folders/FOLDER_ID  |  ...?id=FOLDER_ID  |  .../folderview?id=FOLDER_ID
   const m = url.match(/\/folders\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/)
   return m ? m[1] : null
+}
+
+// ── Firma de IDs de carpeta de Drive ───────────────────────────────────────
+// Evita que /api/drive-folder se use como proxy abierto: solo se pueden navegar
+// las carpetas cuyo ID firmamos nosotros al listarlas (raíces registradas + sus hijas).
+const DRIVE_SIG_SECRET = process.env.CLERK_SECRET_KEY || process.env.CF_R2_SECRET_ACCESS_KEY || 'aa-drive-sig-fallback'
+function signDriveId(driveId) {
+  return createHmac('sha256', DRIVE_SIG_SECRET).update(String(driveId)).digest('hex').slice(0, 24)
+}
+function verifyDriveSig(driveId, sig) {
+  if (typeof sig !== 'string' || sig.length !== 24) return false
+  const expected = signDriveId(driveId)
+  try { return timingSafeEqual(Buffer.from(expected), Buffer.from(sig)) } catch { return false }
 }
 
 /** Categoría de archivo a partir del mimeType de Drive (para el badge/preview) */
@@ -1052,6 +1070,28 @@ app.post('/api/confirm-upload', requireAuthApi, async (req, res) => {
     // Verificar que el objeto existe realmente en R2
     const head = await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }))
     const size = head.ContentLength ?? 0
+
+    // ── Validar el contenido REAL por magic-bytes ──
+    // El PUT prefirmado va directo a R2 sin pasar por el server, así que recién acá
+    // podemos inspeccionar las firmas. Si no coincide con la extensión, se borra.
+    const ext = key.includes('.') ? '.' + key.split('.').pop().toLowerCase() : ''
+    const declaredMime = EXT_TO_MIME[ext]
+    if (!declaredMime) {
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key })).catch(() => {})
+      return res.status(415).json({ error: 'Tipo de archivo no permitido' })
+    }
+    try {
+      const part = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key, Range: 'bytes=0-4099' }))
+      const chunks = []; for await (const c of part.Body) chunks.push(c)
+      const check = await validateMagicBytes(Buffer.concat(chunks), declaredMime)
+      if (!check.valid) {
+        await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key })).catch(() => {})
+        return res.status(415).json({ error: `Archivo rechazado: ${check.reason}` })
+      }
+    } catch (e) {
+      await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key })).catch(() => {})
+      return res.status(400).json({ error: 'No se pudo verificar el archivo subido. Reintentá.' })
+    }
 
     await readMeta('_meta/uploads.json').then(data => {
       data[key] = { uploaderId: userId, uploadedAt: new Date().toISOString() }

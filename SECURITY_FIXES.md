@@ -139,3 +139,35 @@ El `.gitignore` ya excluye `.env` y `.env.local`.
 Los cambios son retrocompatibles con el flujo existente de Clerk en el frontend. El único cambio de comportamiento observable es:
 - Los usuarios no autenticados que intentan subir o borrar archivos reciben HTTP 401 (antes el request era aceptado).
 - El frontend ya enviaba tokens de Clerk en otros contextos; ahora también los envía en upload y delete.
+
+---
+
+## Segunda auditoría — 2026-06-08 (features post-deploy de Drive y carpetas)
+
+### 10. `/api/drive-folder` era un proxy abierto de Drive (MEDIO-ALTO) — CORREGIDO
+
+**Problema:** el endpoint aceptaba cualquier folder ID y lo listaba con la `GOOGLE_API_KEY` del sitio, sin verificar que perteneciera a una carpeta registrada. Permitía a cualquiera enumerar carpetas públicas ajenas y consumir la cuota de Google.
+
+**Corrección:**
+- Los IDs de subcarpeta que el server entrega (en `/api/files` y `/api/drive-folder`) ahora van **firmados con HMAC-SHA256** (`signDriveId`, secreto derivado de `CLERK_SECRET_KEY`).
+- `/api/drive-folder` exige `sig` válida (`verifyDriveSig`, comparación `timingSafeEqual`) o responde **403**. Solo se navegan carpetas que el propio server surfaceó (raíces registradas + sus hijas firmadas).
+- Frontend: `enterDriveFolder` propaga la `sig` y la manda en el fetch.
+
+**Archivos:** `server.js`, `src/ApuntesPage.jsx`
+
+### 11. La subida real (presigned URL) no validaba magic-bytes (MEDIO) — CORREGIDO
+
+**Problema:** `validateMagicBytes` solo corría en el `/api/upload` legacy (multer), que ya no se usa. El flujo real (`upload-url` → PUT directo a R2 → `confirm-upload`) nunca inspeccionaba el contenido.
+
+**Corrección:**
+- `confirm-upload` ahora descarga los primeros 4 KB del objeto (`GetObject` con `Range: bytes=0-4099`) y corre `validateMagicBytes` contra la extensión declarada.
+- Si la firma no coincide (ej: HTML disfrazado de `.pdf`), **borra el objeto de R2** y responde 415.
+
+**Archivos:** `server.js`
+
+---
+
+## Pendiente — requiere infraestructura externa (no bloqueante)
+
+- **Rate limiting distribuido:** `express-rate-limit` usa memoria local; en serverless cada instancia tiene su contador. Para que sea efectivo hace falta un store compartido (ej. Upstash Redis — plan gratis). Mientras tanto protege por-instancia.
+- **Race conditions en metadatos:** `uploads.json` / `folders.json` / `drive-links.json` son read-modify-write sobre un JSON en R2; escrituras concurrentes pueden pisarse. Fix real: mover a un KV/DB (Upstash Redis, Cloudflare D1/KV) o escrituras condicionales con ETag.
