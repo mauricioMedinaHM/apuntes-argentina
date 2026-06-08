@@ -847,47 +847,72 @@ async function countDriveFolder(folderId) {
 }
 
 /**
+ * Llama a la Drive API v3 con un API key público.
+ * Devuelve { ok, data, status, apiError } para que los callers puedan distinguir el tipo de fallo.
+ */
+async function driveApiFetch(path) {
+  const apiKey = process.env.GOOGLE_API_KEY
+  if (!apiKey) return { ok: false, status: 0, apiError: 'no_api_key' }
+  try {
+    const sep = path.includes('?') ? '&' : '?'
+    const res = await fetch(`https://www.googleapis.com/drive/v3/${path}${sep}key=${apiKey}&supportsAllDrives=true&includeItemsFromAllDrives=true`)
+    const data = await res.json().catch(() => null)
+    if (!res.ok) {
+      const msg = data?.error?.message || `HTTP ${res.status}`
+      log('DRIVE', 'api error', `${res.status} ${msg}`)
+      return { ok: false, status: res.status, apiError: msg, data }
+    }
+    if (data?.error) {
+      const msg = data.error.message || 'Drive API error'
+      log('DRIVE', 'api error body', msg)
+      return { ok: false, status: data.error.code ?? 500, apiError: msg, data }
+    }
+    return { ok: true, status: res.status, data }
+  } catch (err) {
+    log('DRIVE', 'fetch exception', err.message)
+    return { ok: false, status: 0, apiError: err.message }
+  }
+}
+
+/**
  * Lista el contenido de una carpeta pública de Drive, separando archivos y subcarpetas.
  * Requiere GOOGLE_API_KEY (Drive API v3). Sin key, devuelve null (fallback a card).
  * @returns {{ files: object[], folders: object[] } | null}
  */
 async function listDriveFolder(folderId, { withCounts = false } = {}) {
-  const apiKey = process.env.GOOGLE_API_KEY
-  if (!apiKey || !folderId) return null
-  try {
-    const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`)
-    const fields = encodeURIComponent('files(id,name,mimeType,size,modifiedTime)')
-    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&key=${apiKey}&fields=${fields}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`
-    const res = await fetch(url)
-    if (!res.ok) { log('DRIVE', 'list error', `${res.status}`); return null }
-    const data = await res.json()
+  if (!process.env.GOOGLE_API_KEY || !folderId) return null
+  const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`)
+  const fields = encodeURIComponent('files(id,name,mimeType,size,modifiedTime)')
+  const { ok, data } = await driveApiFetch(
+    `files?q=${q}&fields=${fields}&pageSize=1000`
+  )
+  if (!ok || !data) return null
 
-    const files = []
-    const folders = []
-    for (const f of (data.files ?? [])) {
-      if (f.mimeType === DRIVE_FOLDER_MIME) {
-        folders.push({ driveId: f.id, name: f.name, lastModified: f.modifiedTime })
-      } else {
-        files.push({
-          driveId: f.id,
-          name: f.name,
-          kind: driveKind(f.mimeType),
-          size: f.size ? Number(f.size) : null,
-          lastModified: f.modifiedTime,
-          viewUrl: `https://drive.google.com/file/d/${f.id}/view`,
-          previewUrl: `https://drive.google.com/file/d/${f.id}/preview`,
-        })
-      }
+  const files = []
+  const folders = []
+  for (const f of (data.files ?? [])) {
+    if (f.mimeType === DRIVE_FOLDER_MIME) {
+      folders.push({ driveId: f.id, name: f.name, lastModified: f.modifiedTime })
+    } else {
+      files.push({
+        driveId: f.id,
+        name: f.name,
+        kind: driveKind(f.mimeType),
+        size: f.size ? Number(f.size) : null,
+        lastModified: f.modifiedTime,
+        viewUrl: `https://drive.google.com/file/d/${f.id}/view`,
+        previewUrl: `https://drive.google.com/file/d/${f.id}/preview`,
+      })
     }
+  }
 
-    // Conteo de items por subcarpeta (cap a 30 para no explotar en llamadas)
-    if (withCounts && folders.length > 0 && folders.length <= 30) {
-      const counts = await Promise.all(folders.map(fo => countDriveFolder(fo.driveId)))
-      folders.forEach((fo, i) => { fo.count = counts[i] })
-    }
+  // Conteo de items por subcarpeta (cap a 30 para no explotar en llamadas)
+  if (withCounts && folders.length > 0 && folders.length <= 30) {
+    const counts = await Promise.all(folders.map(fo => countDriveFolder(fo.driveId)))
+    folders.forEach((fo, i) => { fo.count = counts[i] })
+  }
 
-    return { files, folders }
-  } catch (err) { log('DRIVE', 'list exception', err.message); return null }
+  return { files, folders }
 }
 
 /** GET — el cliente pregunta si su usuario tiene rol admin (para mostrar la UI) */
@@ -961,21 +986,41 @@ app.post('/api/drive-career', requireAuthApi, requireAdmin, async (req, res) => 
   if (!isDriveUrl(url))  return res.status(400).json({ error: 'El link debe ser de Google Drive' })
 
   const folderId = extractFolderId(url)
-  if (!folderId) return res.status(400).json({ error: 'El link debe ser de una carpeta de Drive (con /folders/...)' })
+  if (!folderId) return res.status(400).json({ error: 'No se pudo extraer el ID de carpeta. Usá un link del tipo: drive.google.com/drive/folders/...' })
+
+  if (!process.env.GOOGLE_API_KEY)
+    return res.status(503).json({ error: 'El servidor no tiene Google API key configurada. Agregá GOOGLE_API_KEY en las variables de entorno de Vercel.' })
 
   try {
-    const contents = await listDriveFolder(folderId)
-    if (!contents) return res.status(503).json({ error: 'No se pudo leer la carpeta. ¿Está compartida como "cualquiera con el enlace"?' })
-    if (contents.folders.length === 0)
-      return res.status(400).json({ error: 'La carpeta no tiene subcarpetas. Para una sola materia usá "Agregar carpeta de Drive" dentro de la materia.' })
+    // Intentar leer la carpeta con la Drive API
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`)
+    const fields = encodeURIComponent('files(id,name,mimeType,modifiedTime)')
+    const { ok, data, status: apiStatus, apiError } = await driveApiFetch(
+      `files?q=${q}&fields=${fields}&pageSize=1000`
+    )
+
+    if (!ok) {
+      let hint = ''
+      if (apiStatus === 403 || apiStatus === 404)
+        hint = 'Asegurate de que la carpeta esté compartida como "Cualquiera con el enlace puede ver" en Google Drive (Compartir → cambiar de "Restringido" a "Cualquiera con el enlace").'
+      else if (apiStatus === 0)
+        hint = 'Error de red al contactar la Drive API.'
+      else
+        hint = `Error de Drive API: ${apiError}`
+      return res.status(503).json({ error: hint })
+    }
+
+    const subFolders = (data.files ?? []).filter(f => f.mimeType === DRIVE_FOLDER_MIME)
+    if (subFolders.length === 0)
+      return res.status(400).json({ error: 'La carpeta no tiene subcarpetas visibles. Para una sola materia usá "Agregar carpeta de Drive" dentro de la materia.' })
 
     const links = await readMeta('_meta/drive-links.json')
     const created = [], skipped = []
-    for (const fo of contents.folders) {
+    for (const fo of subFolders) {
       const subjectName = sanitizePath(fo.name)
       if (!subjectName) continue
       const pathKey = `${uni}/${career}/${subjectName}`
-      const subUrl  = `https://drive.google.com/drive/folders/${fo.driveId}`
+      const subUrl  = `https://drive.google.com/drive/folders/${fo.id}`
       if (!links[pathKey]) links[pathKey] = []
       if (links[pathKey].some(l => l.url === subUrl)) { skipped.push(subjectName); continue }  // ya importada
       links[pathKey].push({ id: randomBytes(8).toString('hex'), name: fo.name, url: subUrl, addedAt: new Date().toISOString(), group: folderId })
