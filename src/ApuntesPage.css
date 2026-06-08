@@ -548,6 +548,77 @@
 }
 .ap-dl:hover { background: #1a2844; }
 
+/* ── Carpeta de Drive (item) ── */
+.ap-file--drive .ap-file-ext--drive {
+  background: rgba(116,172,223,0.15);
+  color: var(--color-celeste);
+  display: flex; align-items: center; justify-content: center;
+}
+.ap-file--drive:hover .ap-file-ext--drive {
+  background: var(--color-celeste); color: #fff;
+}
+.ap-drive-badge {
+  display: inline-flex; align-items: center;
+  font-size: 0.68rem; font-weight: 700;
+  color: var(--color-celeste);
+  background: rgba(116,172,223,0.12);
+  border: 1px solid rgba(116,172,223,0.3);
+  padding: 2px 8px; border-radius: 6px; letter-spacing: 0.02em;
+}
+.ap-dl--drive { background: var(--color-celeste); color: var(--color-primary); }
+.ap-dl--drive:hover { background: #5b9bd1; }
+
+/* ── Admin: agregar carpeta de Drive ── */
+.ap-bk-btn--admin { color: var(--color-celeste); }
+
+.ap-admin-box { margin-top: -4px; }
+
+.ap-admin-add-drive {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(116,172,223,0.1);
+  border: 1.5px dashed rgba(116,172,223,0.5);
+  color: var(--color-celeste);
+  font-size: 0.85rem; font-weight: 600;
+  padding: 12px 20px; border-radius: 12px;
+  cursor: pointer; font-family: inherit; transition: all 0.15s;
+}
+.ap-admin-add-drive:hover { background: rgba(116,172,223,0.18); border-color: var(--color-celeste); }
+
+.ap-drive-form {
+  background: var(--color-white);
+  border: 1.5px solid var(--color-celeste);
+  border-radius: 14px; padding: 18px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ap-drive-form-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.85rem; font-weight: 700; color: var(--color-primary);
+  margin-bottom: 2px;
+}
+.ap-drive-input {
+  width: 100%; background: var(--color-bg);
+  border: 1px solid var(--color-border); border-radius: 8px;
+  padding: 10px 12px; font-size: 0.88rem; color: var(--color-primary);
+  font-family: inherit; outline: none;
+}
+.ap-drive-input:focus { border-color: var(--color-celeste); }
+.ap-drive-form-actions { display: flex; gap: 8px; margin-top: 2px; }
+.ap-drive-confirm {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+  background: var(--color-celeste); color: var(--color-primary);
+  border: none; border-radius: 8px; padding: 10px;
+  font-size: 0.85rem; font-weight: 700; cursor: pointer; font-family: inherit;
+  transition: background 0.15s;
+}
+.ap-drive-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+.ap-drive-confirm:not(:disabled):hover { background: #5b9bd1; }
+.ap-drive-cancel {
+  width: 40px; display: flex; align-items: center; justify-content: center;
+  background: var(--color-bg); border: 1px solid var(--color-border);
+  border-radius: 8px; cursor: pointer; color: var(--color-secondary); font-family: inherit;
+}
+.ap-drive-cancel:hover { background: #FEF2F2; color: #DC2626; border-color: #FECACA; }
+
 /* ══════════════════════════════════════════
    UNIVERSITY SELECTOR
 ══════════════════════════════════════════ */

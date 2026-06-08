@@ -278,12 +278,8 @@ async function buildTree() {
   } while (token)
 
   const tree = { universities: [], careers: {}, subjects: {} }
-  for (const obj of all) {
-    // Ignora archivos internos y metadata
-    if (obj.Key.startsWith('_meta/') || obj.Key === 'index.json') continue
-    const parts = obj.Key.split('/')
-    if (parts.length < 4) continue
-    const [uni, career, subject] = parts
+  const addPath = (uni, career, subject) => {
+    if (!uni || !career || !subject) return
     if (!tree.universities.includes(uni))              tree.universities.push(uni)
     if (!tree.careers[uni])                            tree.careers[uni] = []
     if (!tree.careers[uni].includes(career))           tree.careers[uni].push(career)
@@ -291,6 +287,24 @@ async function buildTree() {
     if (!tree.subjects[uni][career])                   tree.subjects[uni][career] = []
     if (!tree.subjects[uni][career].includes(subject)) tree.subjects[uni][career].push(subject)
   }
+
+  for (const obj of all) {
+    // Ignora archivos internos y metadata
+    if (obj.Key.startsWith('_meta/') || obj.Key === 'index.json') continue
+    const parts = obj.Key.split('/')
+    if (parts.length < 4) continue
+    addPath(parts[0], parts[1], parts[2])
+  }
+
+  // Incluir materias que solo tienen links de Drive (sin archivos físicos)
+  try {
+    const links = await readMeta('_meta/drive-links.json')
+    for (const path of Object.keys(links)) {
+      const [uni, career, subject] = path.split('/')
+      addPath(uni, career, subject)
+    }
+  } catch {}
+
   return tree
 }
 
@@ -413,8 +427,15 @@ app.get('/api/files', treeLimiter, async (req, res) => {
     const result = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix }))
     const files = (result.Contents ?? [])
       .filter(o => !o.Key.endsWith('/') && !o.Key.startsWith('_meta/'))
-      .map(o => ({ key: o.Key, name: o.Key.split('/').pop(), size: o.Size, lastModified: o.LastModified }))
-    res.json(files)
+      .map(o => ({ type: 'file', key: o.Key, name: o.Key.split('/').pop(), size: o.Size, lastModified: o.LastModified }))
+
+    // Carpetas de Drive registradas para esta materia
+    const links = await readMeta('_meta/drive-links.json')
+    const driveItems = (links[`${uni}/${career}/${subject}`] ?? []).map(l => ({
+      type: 'drive', id: l.id, name: l.name, url: l.url, lastModified: l.addedAt,
+    }))
+
+    res.json([...driveItems, ...files])
   } catch (err) { res.status(500).json({ error: err.message }) }
 })
 
@@ -437,6 +458,83 @@ const EXT_TO_MIME = {
   '.ppt': 'application/vnd.ms-powerpoint',
   '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// CARPETAS DE DRIVE (admin) — links externos que se muestran como contenido
+// ══════════════════════════════════════════════════════════════════════════
+
+/** Valida que la URL sea de Google Drive */
+function isDriveUrl(url) {
+  if (typeof url !== 'string') return false
+  try {
+    const u = new URL(url)
+    return /(^|\.)drive\.google\.com$/.test(u.hostname) || /(^|\.)docs\.google\.com$/.test(u.hostname)
+  } catch { return false }
+}
+
+/** Verifica la clave de admin (header x-admin-key o body.adminKey) */
+function isAdmin(req) {
+  const key = req.get('x-admin-key') || req.body?.adminKey
+  return !!process.env.ADMIN_KEY && key === process.env.ADMIN_KEY
+}
+
+/** GET — el cliente pregunta si una clave de admin es válida (para mostrar la UI) */
+app.post('/api/admin/check', (req, res) => {
+  res.json({ ok: isAdmin(req) })
+})
+
+/** POST — agrega una carpeta de Drive a una materia (solo admin) */
+app.post('/api/drive-link', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Clave de admin inválida' })
+
+  const uni     = sanitizePath(req.body.university)
+  const career  = sanitizePath(req.body.career)
+  const subject = sanitizePath(req.body.subject)
+  const name    = (typeof req.body.name === 'string' ? req.body.name : '').trim().slice(0, 120)
+  const url     = (typeof req.body.url === 'string' ? req.body.url : '').trim()
+
+  log('POST', '/api/drive-link', `${uni}/${career}/${subject} — ${name}`)
+
+  if (!uni || !career || !subject) return res.status(400).json({ error: 'university, career y subject son requeridos' })
+  if (!name)         return res.status(400).json({ error: 'Falta el nombre de la carpeta' })
+  if (!isDriveUrl(url)) return res.status(400).json({ error: 'El link debe ser de Google Drive' })
+
+  try {
+    const links = await readMeta('_meta/drive-links.json')
+    const pathKey = `${uni}/${career}/${subject}`
+    if (!links[pathKey]) links[pathKey] = []
+    const item = { id: randomBytes(8).toString('hex'), name, url, addedAt: new Date().toISOString() }
+    links[pathKey].push(item)
+    await writeMeta('_meta/drive-links.json', links)
+    await updateIndex()
+    res.json({ success: true, item })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+/** DELETE — elimina una carpeta de Drive por id (solo admin) */
+app.delete('/api/drive-link', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'Clave de admin inválida' })
+
+  const uni     = sanitizePath(req.body.university)
+  const career  = sanitizePath(req.body.career)
+  const subject = sanitizePath(req.body.subject)
+  const id      = typeof req.body.id === 'string' ? req.body.id : ''
+  log('DELETE', '/api/drive-link', `${uni}/${career}/${subject} — ${id}`)
+
+  if (!uni || !career || !subject || !id) return res.status(400).json({ error: 'Parámetros incompletos' })
+
+  try {
+    const links = await readMeta('_meta/drive-links.json')
+    const pathKey = `${uni}/${career}/${subject}`
+    if (links[pathKey]) {
+      links[pathKey] = links[pathKey].filter(l => l.id !== id)
+      if (links[pathKey].length === 0) delete links[pathKey]
+      await writeMeta('_meta/drive-links.json', links)
+      await updateIndex()
+    }
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
 
 /**
  * Paso 1 — Genera una URL prefirmada para subir DIRECTO a R2.

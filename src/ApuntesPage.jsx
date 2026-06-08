@@ -4,7 +4,7 @@ import {
   Search, ArrowLeft, Star, Bookmark, BookmarkCheck,
   Download, ChevronRight, FolderOpen, FolderPlus,
   FileText, AlertCircle, Loader, Upload, Plus,
-  X, Check, FileUp, Trash2, Lock,
+  X, Check, FileUp, Trash2, Lock, ExternalLink, Link2,
 } from 'lucide-react'
 import { useAuth, SignInButton } from '@clerk/react'
 import { UNIVERSITIES, FACULTIES } from './universities.js'
@@ -161,6 +161,9 @@ export default function ApuntesPage({ onBack }) {
   const [points,   setPoints]   = useState(getPoints)
   const [pointsAnim, setPointsAnim] = useState(null)
   const [preview,  setPreview]  = useState(null)   // file object to preview
+  const [adminKey, setAdminKey] = useState(() => { try { return localStorage.getItem('aa-admin-key') || '' } catch { return '' } })
+  const [isAdmin,  setIsAdmin]  = useState(false)
+  const [driveForm, setDriveForm] = useState(null)  // { name, url } | null cuando se está agregando
   const { isSignedIn, getToken } = useAuth()
   const deviceId = getDeviceId()
   const fileRef   = useRef(null)
@@ -318,6 +321,50 @@ export default function ApuntesPage({ onBack }) {
     } catch (err) { alert('No se pudo eliminar: ' + err.message) }
   }
 
+  // ── Carpetas de Drive (admin) ─────────────────────────────────────────
+  // Verifica la admin key guardada al montar
+  useEffect(() => {
+    if (!adminKey) { setIsAdmin(false); return }
+    fetch(`${API}/admin/check`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+    }).then(r => r.json()).then(d => setIsAdmin(!!d.ok)).catch(() => setIsAdmin(false))
+  }, [adminKey])
+
+  const saveAdminKey = k => {
+    try { localStorage.setItem('aa-admin-key', k) } catch {}
+    setAdminKey(k)
+  }
+
+  const addDriveLink = async () => {
+    const name = (driveForm?.name || '').trim()
+    const url  = (driveForm?.url || '').trim()
+    if (!name || !url) return
+    try {
+      const res = await fetch(`${API}/drive-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+        body: JSON.stringify({ university: uni, career, subject, name, url }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
+      const { item } = await res.json()
+      setFiles(prev => [{ type: 'drive', id: item.id, name: item.name, url: item.url, lastModified: item.addedAt }, ...prev])
+      setDriveForm(null)
+    } catch (err) { alert('No se pudo agregar la carpeta: ' + err.message) }
+  }
+
+  const deleteDriveLink = async id => {
+    if (!window.confirm('¿Eliminar esta carpeta de Drive?')) return
+    try {
+      const res = await fetch(`${API}/drive-link`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey },
+        body: JSON.stringify({ university: uni, career, subject, id }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
+      setFiles(prev => prev.filter(f => f.id !== id))
+    } catch (err) { alert('No se pudo eliminar: ' + err.message) }
+  }
+
   // ── Rate ──────────────────────────────────────────────────────────────
   const rate = async (key, stars) => {
     if (hasVoted(key) || ratingKey) return
@@ -414,6 +461,15 @@ export default function ApuntesPage({ onBack }) {
           <button className={`ap-bk-btn ${favs.unis.includes(uni) ? 'ap-bk-btn--on':''}`} onClick={toggleFavUni}
             title={favs.unis.includes(uni) ? 'Quitar de favoritas':'Guardar universidad'}>
             {favs.unis.includes(uni) ? <BookmarkCheck size={16}/> : <Bookmark size={16}/>}
+          </button>
+          <button className={`ap-bk-btn ${isAdmin ? 'ap-bk-btn--admin':''}`}
+            onClick={() => {
+              const k = window.prompt(isAdmin ? 'Modo admin activo. Ingresá nueva clave o vacío para salir:' : 'Clave de admin:', '')
+              if (k === null) return
+              saveAdminKey(k.trim())
+            }}
+            title={isAdmin ? 'Modo admin activo' : 'Modo admin'}>
+            <Lock size={15}/>
           </button>
         </div>
       </div>
@@ -532,6 +588,32 @@ export default function ApuntesPage({ onBack }) {
               </div>
             )}
 
+            {/* ── Admin: agregar carpeta de Drive ── */}
+            {isAdmin && (
+              <div className="ap-admin-box">
+                {driveForm ? (
+                  <div className="ap-drive-form">
+                    <div className="ap-drive-form-head"><Link2 size={16}/> Nueva carpeta de Drive</div>
+                    <input className="ap-drive-input" placeholder="Nombre (ej: Apuntes Civil I — Cátedra López)"
+                      value={driveForm.name} onChange={e => setDriveForm({ ...driveForm, name: e.target.value })} autoFocus />
+                    <input className="ap-drive-input" placeholder="https://drive.google.com/..."
+                      value={driveForm.url} onChange={e => setDriveForm({ ...driveForm, url: e.target.value })}
+                      onKeyDown={e => e.key === 'Enter' && addDriveLink()} />
+                    <div className="ap-drive-form-actions">
+                      <button className="ap-drive-confirm" onClick={addDriveLink} disabled={!driveForm.name.trim() || !driveForm.url.trim()}>
+                        <Check size={14}/> Agregar carpeta
+                      </button>
+                      <button className="ap-drive-cancel" onClick={() => setDriveForm(null)}><X size={14}/></button>
+                    </div>
+                  </div>
+                ) : (
+                  <button className="ap-admin-add-drive" onClick={() => setDriveForm({ name: '', url: '' })}>
+                    <Link2 size={16}/> Agregar carpeta de Drive
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Queue */}
             <AnimatePresence>
               {queue.length > 0 && (
@@ -589,6 +671,37 @@ export default function ApuntesPage({ onBack }) {
                 )}
                 <div className="ap-files-list">
                   {visFiles.map((f,i) => {
+                    // ── Carpeta de Drive (link externo) ──
+                    if (f.type === 'drive') {
+                      return (
+                        <motion.div key={f.id} className="ap-file ap-file--drive ap-file--clickable"
+                          initial={{opacity:0,x:-6}} animate={{opacity:1,x:0}} transition={{delay:i*0.04}}
+                          onClick={() => window.open(f.url, '_blank', 'noopener')}
+                          title="Abrir carpeta en Google Drive">
+                          <div className="ap-file-ext ap-file-ext--drive">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                          </div>
+                          <div className="ap-file-info">
+                            <span className="ap-file-name">{f.name}</span>
+                            <div className="ap-file-meta">
+                              <span className="ap-drive-badge">Carpeta de Drive</span>
+                              {f.lastModified && <><span>·</span><span>{relDate(f.lastModified)}</span></>}
+                            </div>
+                          </div>
+                          <div className="ap-file-btns" onClick={e => e.stopPropagation()}>
+                            <button className="ap-dl ap-dl--drive" onClick={() => window.open(f.url, '_blank', 'noopener')} title="Abrir en Drive">
+                              <ExternalLink size={16}/>
+                            </button>
+                            {isAdmin && (
+                              <button className="ap-del" onClick={() => deleteDriveLink(f.id)} title="Eliminar carpeta (admin)">
+                                <Trash2 size={15}/>
+                              </button>
+                            )}
+                          </div>
+                        </motion.div>
+                      )
+                    }
+                    // ── Archivo del bucket ──
                     const r = ratings[f.key]
                     return (
                       <motion.div key={f.key} className="ap-file ap-file--clickable"
