@@ -287,6 +287,13 @@ function log(method, path, extra = '') {
 
 function kb(b) { return (b / 1024).toFixed(1) + ' KB' }
 
+// Loguea el detalle real del error en el servidor pero NUNCA lo expone al cliente
+// (los err.message del SDK de R2/Clerk filtran internals: bucket, región, rutas, etc.)
+function serverError(res, scope, err) {
+  console.error(`[${scope}]`, err?.message || err)
+  return res.status(500).json({ error: 'Error interno del servidor' })
+}
+
 async function buildTree() {
   const all = []
   let token
@@ -507,7 +514,7 @@ app.get('/api/health', (_req, res) => {
 app.get('/api/tree', treeLimiter, async (_req, res) => {
   log('GET', '/api/tree')
   try { res.json(await buildTree()) }
-  catch (err) { res.status(500).json({ error: err.message }) }
+  catch (err) { serverError(res, 'api', err) }
 })
 
 /** Files in subject */
@@ -579,7 +586,7 @@ app.get('/api/files', treeLimiter, async (req, res) => {
     }
 
     res.json([...driveItems, ...files])
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'api', err) }
 })
 
 /**
@@ -619,7 +626,7 @@ app.get('/api/drive-folder', treeLimiter, async (req, res) => {
       })
     }
     res.json(items)
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'api', err) }
 })
 
 /**
@@ -644,7 +651,7 @@ app.post('/api/folder', requireAuthApi, async (req, res) => {
     })
     await updateIndex()
     res.json({ success: true })
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'api', err) }
 })
 
 /**
@@ -681,7 +688,7 @@ app.delete('/api/folder', requireAuthApi, requireAdmin, async (req, res) => {
 
     await updateIndex()
     res.json({ success: true })
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'api', err) }
 })
 
 /** Carpetas creadas por el usuario logueado (para que el front sepa cuáles puede renombrar) */
@@ -691,7 +698,7 @@ app.get('/api/my-folders', requireAuthApi, async (req, res) => {
     const folders = await readFolders()
     const mine = (map) => Object.entries(map).filter(([, m]) => m && m.by === userId).map(([p]) => p)
     res.json({ careers: mine(folders.careers), subjects: mine(folders.subjects) })
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'api', err) }
 })
 
 /**
@@ -762,7 +769,7 @@ app.post('/api/folder/rename', requireAuthApi, async (req, res) => {
 
     await updateIndex()
     res.json({ success: true, oldPath, newPath, movedFiles: moved.length })
-  } catch (err) { console.error('[rename]', err.message); res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'rename', err) }
 })
 
 // ── Nombre de archivo limpio (compartido) ──────────────────────────────────
@@ -809,7 +816,9 @@ function extractFolderId(url) {
 // ── Firma de IDs de carpeta de Drive ───────────────────────────────────────
 // Evita que /api/drive-folder se use como proxy abierto: solo se pueden navegar
 // las carpetas cuyo ID firmamos nosotros al listarlas (raíces registradas + sus hijas).
-const DRIVE_SIG_SECRET = process.env.CLERK_SECRET_KEY || process.env.CF_R2_SECRET_ACCESS_KEY || 'aa-drive-sig-fallback'
+// Si faltan los secretos de entorno usamos uno aleatorio por proceso (no una constante
+// adivinable): las firmas se regeneran en cada listado, así que no necesitan persistir.
+const DRIVE_SIG_SECRET = process.env.CLERK_SECRET_KEY || process.env.CF_R2_SECRET_ACCESS_KEY || randomBytes(32).toString('hex')
 function signDriveId(driveId) {
   return createHmac('sha256', DRIVE_SIG_SECRET).update(String(driveId)).digest('hex').slice(0, 24)
 }
@@ -938,7 +947,7 @@ app.delete('/api/admin/file', requireAuthApi, requireAdmin, async (req, res) => 
     if (uploads[rawKey]) { delete uploads[rawKey]; await writeMeta('_meta/uploads.json', uploads) }
     await updateIndex()
     res.json({ success: true })
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'api', err) }
 })
 
 /** POST — agrega una carpeta de Drive a una materia (solo admin) */
@@ -967,7 +976,7 @@ app.post('/api/drive-link', requireAuthApi, requireAdmin, async (req, res) => {
     await registerFolders({ careerPath: `${uni}/${career}`, subjectPath: pathKey, by: getAuth(req).userId })
     await updateIndex()
     res.json({ success: true, item })
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'api', err) }
 })
 
 /**
@@ -1037,7 +1046,7 @@ app.post('/api/drive-career', requireAuthApi, requireAdmin, async (req, res) => 
 
     await updateIndex()
     res.json({ success: true, created: created.length, skipped: skipped.length, materias: created })
-  } catch (err) { console.error('[drive-career]', err.message); res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'drive-career', err) }
 })
 
 /** DELETE — elimina una carpeta de Drive por id (solo admin) */
@@ -1061,7 +1070,7 @@ app.delete('/api/drive-link', requireAuthApi, requireAdmin, async (req, res) => 
       await updateIndex()
     }
     res.json({ success: true })
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'api', err) }
 })
 
 /**
@@ -1153,8 +1162,7 @@ app.post('/api/confirm-upload', requireAuthApi, async (req, res) => {
   } catch (err) {
     if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404)
       return res.status(404).json({ error: 'El archivo no se encontró en el almacenamiento. Reintentá la subida.' })
-    console.error('[confirm-upload]', err.message)
-    res.status(500).json({ error: err.message })
+    return serverError(res, 'confirm-upload', err)
   }
 })
 
@@ -1212,7 +1220,7 @@ app.post(
 
       updateIndex()
       res.json({ success: true, key, name: clean, size: buffer.length })
-    } catch (err) { res.status(500).json({ error: err.message }) }
+    } catch (err) { serverError(res, 'api', err) }
   }
 )
 
@@ -1254,7 +1262,7 @@ app.delete(
       updateIndex()
 
       res.json({ success: true })
-    } catch (err) { res.status(500).json({ error: err.message }) }
+    } catch (err) { serverError(res, 'api', err) }
   }
 )
 
@@ -1295,7 +1303,7 @@ app.get('/api/download', downloadLimiter, async (req, res) => {
 /** Ratings */
 app.get('/api/ratings', async (_req, res) => {
   try { res.json(await readMeta('_meta/ratings.json')) }
-  catch (err) { res.status(500).json({ error: err.message }) }
+  catch (err) { serverError(res, 'api', err) }
 })
 
 app.post('/api/ratings', rateLimit({ windowMs: 60000, max: 30 }), async (req, res) => {
@@ -1307,6 +1315,14 @@ app.post('/api/ratings', rateLimit({ windowMs: 60000, max: 30 }), async (req, re
     return res.status(400).json({ error: 'key y stars (1-5) requeridos' })
 
   try {
+    // Solo se puede calificar un archivo que existe realmente en el bucket.
+    // Evita que se infle ratings.json con keys arbitrarias (integridad + DoS del meta).
+    try {
+      await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }))
+    } catch {
+      return res.status(404).json({ error: 'El archivo no existe' })
+    }
+
     const data  = await readMeta('_meta/ratings.json')
     const entry = data[key] ?? { total: 0, count: 0 }
     entry.total += stars; entry.count += 1
@@ -1314,7 +1330,7 @@ app.post('/api/ratings', rateLimit({ windowMs: 60000, max: 30 }), async (req, re
     data[key] = entry
     await writeMeta('_meta/ratings.json', data)
     res.json(entry)
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'api', err) }
 })
 
 /** Uploads registry — solo devuelve los keys, no los uploaderIds (privacidad) */
@@ -1327,7 +1343,7 @@ app.get('/api/uploads', async (_req, res) => {
       safe[k] = { uploadedAt: v.uploadedAt }
     }
     res.json(safe)
-  } catch (err) { res.status(500).json({ error: err.message }) }
+  } catch (err) { serverError(res, 'api', err) }
 })
 
 /** Verificar si el usuario autenticado es dueño de un archivo */

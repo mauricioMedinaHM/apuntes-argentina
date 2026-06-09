@@ -167,7 +167,85 @@ Los cambios son retrocompatibles con el flujo existente de Clerk en el frontend.
 
 ---
 
+## Tercera auditoría — 2026-06-09 (pentest + optimización + navegabilidad)
+
+### 12. Fuga de información en errores 500 (BAJO-MEDIO) — CORREGIDO
+
+**Problema:** 18 endpoints devolvían `res.status(500).json({ error: err.message })` con el
+mensaje crudo del SDK de R2/Clerk. Eso filtra internals (nombre de bucket, región,
+rutas, detalles de la infra) a cualquier cliente que provoque un error.
+
+**Corrección:** helper `serverError(res, scope, err)` que loguea el detalle real en el
+servidor y responde siempre `{ error: 'Error interno del servidor' }`. Aplicado a todos
+los catch de rutas. Se conservan sólo los mensajes controlados y seguros del error
+handler global (CORS / tipo no permitido).
+
+**Archivos:** `server.js`
+
+### 13. Headers de seguridad ausentes en el sitio estático (MEDIO) — CORREGIDO
+
+**Problema:** `helmet` sólo corre sobre `/api`. Las páginas HTML/SPA servidas por Vercel
+no tenían ningún header de seguridad → la app podía ser embebida en un iframe ajeno
+(clickjacking), sin `nosniff`, sin política de referrer, sin HSTS.
+
+**Corrección:** bloque `headers` en `vercel.json` para `/(.*)`:
+`X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: strict-origin-when-cross-origin`,
+`Permissions-Policy: camera=(), microphone=(), geolocation=()`,
+`Strict-Transport-Security` (2 años, preload). No se agregó CSP estricta para no romper
+Clerk, los iframes de preview de Drive ni las fuentes de Google.
+
+**Archivos:** `vercel.json`
+
+### 14. Integridad de ratings: pollution de `ratings.json` (BAJO-MEDIO) — CORREGIDO
+
+**Problema:** `POST /api/ratings` no requiere auth y aceptaba calificar cualquier key
+con formato válido aunque el archivo no existiera. Permitía inflar `ratings.json` con
+keys arbitrarias (integridad de las estrellas + crecimiento no acotado del meta).
+
+**Corrección:** antes de registrar la calificación se hace `HeadObject` sobre la key; si
+el archivo no existe en el bucket, responde 404 y no escribe nada. (La deduplicación real
+por usuario sigue siendo client-side vía `aa-votes` en localStorage; nota abajo.)
+
+**Archivos:** `server.js`
+
+### 15. Fallback adivinable del secreto de firma de Drive (BAJO) — CORREGIDO
+
+**Problema:** `DRIVE_SIG_SECRET` caía a la constante `'aa-drive-sig-fallback'` si faltaban
+los secretos de entorno → firmas HMAC forjables (reabría el proxy de Drive del hallazgo 10).
+
+**Corrección:** el fallback ahora es `randomBytes(32)` por proceso. Las firmas se
+regeneran en cada listado, así que no necesitan persistir entre reinicios.
+
+**Archivos:** `server.js`
+
+---
+
+## Optimización y navegabilidad — 2026-06-09
+
+### Code-splitting del bundle
+
+`ApuntesPage` (y su `UploadPage` + `PreviewModal`) ahora se cargan con `React.lazy` +
+`Suspense`: sólo se descargan cuando la persona entra al buscador. La landing arranca con
+un bundle inicial menor y el código del buscador queda en un chunk aparte (~45 KB / 12 KB gzip).
+
+**Archivos:** `src/App.jsx`
+
+### Botón "atrás" del navegador / Android
+
+Antes, tocar "atrás" dentro del buscador abandonaba el sitio. Ahora un handler de
+`popstate` con una entrada de historial "fantasma" hace que cada "atrás" suba un nivel
+(preview → carpeta de Drive → materia → carrera → universidad → landing).
+
+**Archivos:** `src/ApuntesPage.jsx`
+
+> ⚠️ Probar en `dev` antes de mergear a `main`: el flujo de `popstate` depende del
+> comportamiento real del navegador y no se puede validar con el build estático.
+
+---
+
 ## Pendiente — requiere infraestructura externa (no bloqueante)
 
 - **Rate limiting distribuido:** `express-rate-limit` usa memoria local; en serverless cada instancia tiene su contador. Para que sea efectivo hace falta un store compartido (ej. Upstash Redis — plan gratis). Mientras tanto protege por-instancia.
 - **Race conditions en metadatos:** `uploads.json` / `folders.json` / `drive-links.json` son read-modify-write sobre un JSON en R2; escrituras concurrentes pueden pisarse. Fix real: mover a un KV/DB (Upstash Redis, Cloudflare D1/KV) o escrituras condicionales con ETag.
+- **Deduplicación de ratings:** el "ya votaste" sólo vive en `localStorage` (`aa-votes`), trivial de evadir (borrar el storage o `curl`). El hallazgo 14 ya evita pollution de keys inexistentes, pero el ballot-stuffing por voto repetido sigue siendo posible (limitado a 30/min por IP). Fix real: requerir sesión Clerk en `POST /api/ratings` y deduplicar por `userId`.

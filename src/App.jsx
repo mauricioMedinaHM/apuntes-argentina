@@ -1,5 +1,5 @@
 import { motion, useInView, AnimatePresence } from 'motion/react'
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, lazy, Suspense } from 'react'
 import {
   BookOpen,
   Search,
@@ -22,7 +22,9 @@ import { SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react'
 import VaultAnimation from './VaultAnimation'
 import MockApuntes from './MockApuntes'
 import SplashScreen, { shouldShowSplash } from './SplashScreen'
-import ApuntesPage from './ApuntesPage'
+// Carga diferida: ApuntesPage (y su UploadPage/PreviewModal) solo se descargan
+// cuando la persona entra al buscador — la landing arranca con un bundle mucho menor.
+const ApuntesPage = lazy(() => import('./ApuntesPage'))
 import { UNIVERSITIES } from './universities.js'
 import './App.css'
 import './ApuntesPage.css'
@@ -188,7 +190,13 @@ export default function App() {
 
   if (view === 'apuntes') {
     return (
-      <ApuntesPage onBack={() => setView('landing')} />
+      <Suspense fallback={
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontFamily: 'Inter, sans-serif' }}>
+          Cargando…
+        </div>
+      }>
+        <ApuntesPage onBack={() => setView('landing')} />
+      </Suspense>
     )
   }
 
