@@ -301,6 +301,43 @@ export default function ApuntesPage({ onBack }) {
     else               { setUni(null) }
   }
 
+  // ── Botón "atrás" del navegador / Android ────────────────────────────────
+  // En vez de abandonar el sitio, sube un nivel: cierra el preview, sale de la
+  // carpeta de Drive y luego materia → carrera → universidad → landing.
+  // Devuelve true si consumió un nivel dentro del buscador (para re-armar la trampa).
+  const navBackRef = useRef(null)
+  navBackRef.current = () => {
+    if (preview)          { setPreview(null);                    return true }
+    if (drivePath.length) { setDrivePath(p => p.slice(0, -1));   return true }
+    if (subject)          { setSubject(null); setCreating(null); return true }
+    if (career)           { setCareer(null);  setCreating(null); return true }
+    if (uni)              { setUni(null);                         return true }
+    onBack()  // ya en el selector de universidades → volver a la landing
+    return false
+  }
+
+  useEffect(() => {
+    const onPop = () => {
+      // El navegador ya consumió nuestra entrada "fantasma": subimos un nivel y,
+      // si seguimos dentro del buscador, re-armamos la trampa para el próximo "atrás".
+      if (navBackRef.current()) window.history.pushState({ aa: true }, '')
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
+  // Arma UNA entrada "fantasma" la primera vez que se entra a un nivel navegable.
+  const trapArmed = useRef(false)
+  useEffect(() => {
+    const inside = !!(uni || preview)
+    if (inside && !trapArmed.current) {
+      window.history.pushState({ aa: true }, '')
+      trapArmed.current = true
+    } else if (!inside) {
+      trapArmed.current = false
+    }
+  }, [uni, preview])
+
   // ── Create folder ─────────────────────────────────────────────────────
   const confirmCreate = () => {
     if (!isSignedIn) return   // defensa extra: solo logueados crean carreras/materias
