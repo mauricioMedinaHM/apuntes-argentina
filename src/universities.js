@@ -64,6 +64,7 @@ export const UNIVERSITIES = [
   { id: 'unrt',     name: 'UNRT',     full: 'Universidad Nacional de Río Tercero',                                 province: 'Córdoba',         type: 'nacional',  color: '#2D5FA3', logo: '/logos/unrt.svg'                       },
   { id: 'une', name: 'UNE', full: 'Universidad Nacional de Ezeiza', province: 'Buenos Aires', type: 'nacional', color: '#1A4B5B', logo: '/logos/une.svg' },
   { id: 'una_artes',name: 'UNA',      full: 'Universidad Nacional de las Artes',                                   province: 'CABA',            type: 'nacional',  color: '#6B1A4B', logo: '/logos/una_dark.webp'          },
+  { id: 'fadena',   name: 'FADENA',   full: 'UNDEF — Facultad de Defensa Nacional',                                province: 'CABA',            type: 'nacional',  color: '#1B3A5B', logo: '/logos/fadena.webp'            },
 
   // ════════════════════════════════════════════
   // UTN — FACULTADES REGIONALES
@@ -213,6 +214,7 @@ export const FACULTIES = {
   UNVM:   ['Cs. Básicas y Aplicadas', 'Cs. Humanas', 'Cs. Sociales'],
   UNRN:   ['Derecho y Ciencias Sociales', 'Cs. del Ambiente y la Salud', 'Ingeniería', 'Artes y Medios', 'Ciencias Económicas y Empresariales', 'Informática'],
   UNNOBA: ['Informática', 'Agronomía', 'Ingeniería', 'Cs. Económicas y Jurídicas', 'Humanidades y Salud'],
+  FADENA: ['Licenciatura en Ciberdefensa', 'Licenciatura en Defensa Nacional', 'Licenciatura en Gestión Pública'],
   // UTN Regionales — todas comparten las mismas carreras de ingeniería
   'UTN-BA':        ['Ingeniería en Sistemas', 'Ingeniería Civil', 'Ingeniería Electrónica', 'Ingeniería Eléctrica', 'Ingeniería Mecánica', 'Ingeniería Industrial', 'Ingeniería Química', 'Administración y Organización Industrial'],
   'UTN-Córdoba':   ['Ingeniería en Sistemas', 'Ingeniería Civil', 'Ingeniería Electrónica', 'Ingeniería Eléctrica', 'Ingeniería Mecánica', 'Ingeniería Industrial', 'Ingeniería Química', 'Ingeniería en Construcciones'],
