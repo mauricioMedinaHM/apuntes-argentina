@@ -2197,3 +2197,27 @@
   .step-card { padding: 24px 18px; }
   .step-number { font-size: 2.5rem; }
 }
+
+/* ── Discord — comunidad del proyecto ── */
+.btn-discord {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: #5865F2;          /* blurple oficial de Discord */
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 14px 28px;
+  border-radius: 12px;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+.btn-discord:hover { background: #4752c4; }
+
+.contribute-discord-line {
+  font-size: 0.92rem;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.7;
+  max-width: 560px;
+  margin: 28px auto 0;
+}

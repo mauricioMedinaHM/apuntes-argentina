@@ -17,7 +17,10 @@ import {
   RotateCcw,
   Cpu,
 } from 'lucide-react'
-import { SiGithub as Github, SiInstagram as Instagram, SiX as XTwitter } from 'react-icons/si'
+import { SiGithub as Github, SiInstagram as Instagram, SiX as XTwitter, SiDiscord as Discord } from 'react-icons/si'
+
+// Comunidad del proyecto: desarrollo, reporte de bugs, ideas y mano a mano
+const DISCORD_URL = 'https://discord.gg/CGrmyfyZ'
 import { SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react'
 import VaultAnimation from './VaultAnimation'
 import MockApuntes from './MockApuntes'
@@ -639,6 +642,17 @@ export default function App() {
           <FadeIn delay={0.4}>
             <div className="contribute-actions">
               <motion.a
+                href={DISCORD_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-discord"
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                <Discord size={20} />
+                Sumate al Discord
+              </motion.a>
+              <motion.a
                 href="https://github.com/mauricioMedinaHM/apuntes-argentina"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -661,6 +675,13 @@ export default function App() {
                 Cómo contribuir
               </motion.a>
             </div>
+          </FadeIn>
+          <FadeIn delay={0.5}>
+            <p className="contribute-discord-line">
+              En el Discord se charla el desarrollo, se reportan bugs, se proponen ideas
+              y se arma comunidad alrededor del proyecto. Si querés sumar — programando
+              o no — ese es el lugar.
+            </p>
           </FadeIn>
         </div>
       </section>
@@ -723,11 +744,22 @@ export default function App() {
                 >
                   <Github size={20} />
                 </a>
+                <a
+                  href={DISCORD_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Discord — sumate al proyecto"
+                  title="Discord: desarrollo, bugs y comunidad"
+                  className="social-link"
+                >
+                  <Discord size={20} />
+                </a>
               </div>
             </div>
 
             <nav className="footer-nav">
               <h4>Proyecto</h4>
+              <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer">Discord — sumate al proyecto</a>
               <a href="https://github.com/mauricioMedinaHM/apuntes-argentina" target="_blank" rel="noopener noreferrer">GitHub</a>
               <a href="https://github.com/mauricioMedinaHM/apuntes-argentina/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Cómo contribuir</a>
               <a href="mailto:hh.mauri2190@gmail.com">Contacto</a>
