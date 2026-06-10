@@ -1041,3 +1041,65 @@ button.ap-crumb-seg:active { background: rgba(35,53,92,0.13); }
   font-size: 0.8rem; color: var(--color-secondary);
   line-height: 1.5; padding: 6px 4px;
 }
+
+/* ══════════════════════════════════════════
+   ABANICO DE ACCIONES POR ARCHIVO
+══════════════════════════════════════════ */
+
+/* La fila necesita poder superponerse a sus vecinas cuando el abanico está abierto */
+.ap-file { position: relative; }
+.ap-file:has(.ap-fan--open) { z-index: 40; }
+
+/* Variante horizontal (subcarpetas: abanico + chevron en línea) */
+.ap-file-btns--row { flex-direction: row; align-items: center; }
+
+.ap-fan {
+  position: relative;
+  width: 38px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+.ap-fan-trigger {
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  background: rgba(35,53,92,0.07);
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  font-family: inherit;
+  position: relative; z-index: 2;
+}
+.ap-fan-trigger:hover { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.ap-fan-trigger--open { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+
+.ap-fan-trigger-icon { display: flex; align-items: center; justify-content: center; }
+
+.ap-fan-item {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 36px; height: 36px;
+  margin: -18px 0 0 -18px;
+  border-radius: 50%;
+  background: var(--color-white);
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 6px 18px rgba(35,53,92,0.25);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-family: inherit;
+  z-index: 3;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.ap-fan-item:hover { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+
+.ap-fan-item--dl { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.ap-fan-item--dl:hover { background: #1a2844; }
+
+.ap-fan-item--drive { background: var(--color-celeste); color: #23355C; border-color: var(--color-celeste); }
+.ap-fan-item--drive:hover { background: #5b9bd1; }
+
+.ap-fan-item--del { background: var(--color-white); color: #DC2626; border-color: rgba(220,38,38,0.35); }
+.ap-fan-item--del:hover { background: #DC2626; color: #fff; border-color: #DC2626; }

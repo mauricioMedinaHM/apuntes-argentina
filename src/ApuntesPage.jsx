@@ -5,7 +5,7 @@ import {
   Download, ChevronRight, FolderOpen, FolderPlus,
   FileText, AlertCircle, Loader, Upload, Plus,
   X, Check, FileUp, Trash2, Lock, ExternalLink, Bug, Pencil,
-  FolderInput, Folder,
+  FolderInput, Folder, MoreVertical,
 } from 'lucide-react'
 import { useAuth, useUser, SignInButton } from '@clerk/react'
 import { UNIVERSITIES, FACULTIES } from './universities.js'
@@ -86,6 +86,72 @@ function MarqueeText({ text, className = '' }) {
         {text}
       </span>
     </span>
+  )
+}
+
+// ── Abanico de acciones por archivo ─────────────────────────────────────────
+// Las acciones quedan escondidas detrás de un botón de opciones; al tocarlo se
+// despliegan en abanico hacia la izquierda y el centro pasa a ser una X para
+// cerrar. Mantiene las filas bien bajitas y la lista cómoda de leer.
+function FileActions({ actions }) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef(null)
+
+  // Cerrar al tocar afuera o con Escape
+  useEffect(() => {
+    if (!open) return
+    const onDoc = e => { if (!wrapRef.current?.contains(e.target)) setOpen(false) }
+    const onKey = e => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('pointerdown', onDoc); document.removeEventListener('keydown', onKey) }
+  }, [open])
+
+  if (actions.length === 0) return null
+
+  // Ángulos del abanico (hacia la izquierda del botón): arco centrado en 0°
+  const n = actions.length
+  const arc = Math.min(150, 60 * (n - 1))
+  const angles = n === 1 ? [0] : actions.map((_, i) => -arc / 2 + (arc / (n - 1)) * i)
+  const R = 52  // radio del abanico
+
+  return (
+    <div className={`ap-fan ${open ? 'ap-fan--open' : ''}`} ref={wrapRef}>
+      <AnimatePresence>
+        {open && actions.map((a, i) => {
+          const rad = (angles[i] * Math.PI) / 180
+          const x = -Math.cos(rad) * R   // hacia la izquierda
+          const y = Math.sin(rad) * R
+          return (
+            <motion.button
+              key={a.key}
+              className={`ap-fan-item ${a.className ?? ''}`}
+              title={a.title} aria-label={a.title}
+              initial={{ x: 0, y: 0, opacity: 0, scale: 0.3 }}
+              animate={{ x, y, opacity: 1, scale: 1 }}
+              exit={{ x: 0, y: 0, opacity: 0, scale: 0.3 }}
+              transition={{ type: 'spring', stiffness: 480, damping: 28, delay: i * 0.035 }}
+              onClick={() => { setOpen(false); a.onClick() }}
+            >
+              {a.icon}
+            </motion.button>
+          )
+        })}
+      </AnimatePresence>
+      <button
+        className={`ap-fan-trigger ${open ? 'ap-fan-trigger--open' : ''}`}
+        aria-label={open ? 'Cerrar opciones' : 'Opciones'}
+        aria-expanded={open}
+        title={open ? 'Cerrar' : 'Opciones'}
+        onClick={() => setOpen(o => !o)}
+      >
+        <motion.span className="ap-fan-trigger-icon"
+          animate={{ rotate: open ? 90 : 0 }}
+          transition={{ type: 'spring', stiffness: 420, damping: 24 }}>
+          {open ? <X size={17}/> : <MoreVertical size={17}/>}
+        </motion.span>
+      </button>
+    </div>
   )
 }
 
@@ -1181,16 +1247,12 @@ export default function ApuntesPage({ onBack }) {
                               <span className="ap-subfolder-badge">Subcarpeta</span>
                             </div>
                           </div>
-                          <div className="ap-file-btns" onClick={e => e.stopPropagation()}>
+                          <div className="ap-file-btns ap-file-btns--row" onClick={e => e.stopPropagation()}>
                             {(f.owned || isAdmin) && (
-                              <>
-                                <button className="ap-edit" onClick={() => renameSubfolder(f)} title="Renombrar subcarpeta">
-                                  <Pencil size={14}/>
-                                </button>
-                                <button className="ap-del" onClick={() => deleteSubfolder(f)} title="Eliminar subcarpeta vacía">
-                                  <Trash2 size={15}/>
-                                </button>
-                              </>
+                              <FileActions actions={[
+                                { key: 'ren', icon: <Pencil size={14}/>, title: 'Renombrar subcarpeta', onClick: () => renameSubfolder(f) },
+                                { key: 'del', icon: <Trash2 size={14}/>, title: 'Eliminar subcarpeta vacía', className: 'ap-fan-item--del', onClick: () => deleteSubfolder(f) },
+                              ]}/>
                             )}
                             <ChevronRight size={20} className="ap-drive-chevron"/>
                           </div>
@@ -1216,14 +1278,12 @@ export default function ApuntesPage({ onBack }) {
                             </div>
                           </div>
                           <div className="ap-file-btns" onClick={e => e.stopPropagation()}>
-                            <button className="ap-dl ap-dl--drive" onClick={() => window.open(f.url, '_blank', 'noopener')} title="Abrir en Drive">
-                              <ExternalLink size={16}/>
-                            </button>
-                            {isAdmin && (
-                              <button className="ap-del" onClick={() => deleteDriveLink(f.id)} title="Eliminar carpeta (admin)">
-                                <Trash2 size={15}/>
-                              </button>
-                            )}
+                            <FileActions actions={[
+                              { key: 'open', icon: <ExternalLink size={15}/>, title: 'Abrir en Drive', className: 'ap-fan-item--drive',
+                                onClick: () => window.open(f.url, '_blank', 'noopener') },
+                              ...(isAdmin ? [{ key: 'del', icon: <Trash2 size={14}/>, title: 'Eliminar carpeta (admin)', className: 'ap-fan-item--del',
+                                onClick: () => deleteDriveLink(f.id) }] : []),
+                            ]}/>
                           </div>
                         </motion.div>
                       )
@@ -1270,9 +1330,10 @@ export default function ApuntesPage({ onBack }) {
                             </div>
                           </div>
                           <div className="ap-file-btns" onClick={e => e.stopPropagation()}>
-                            <button className="ap-dl ap-dl--drive" onClick={() => window.open(f.viewUrl, '_blank', 'noopener')} title="Abrir en Drive">
-                              <ExternalLink size={16}/>
-                            </button>
+                            <FileActions actions={[
+                              { key: 'open', icon: <ExternalLink size={15}/>, title: 'Abrir en Drive', className: 'ap-fan-item--drive',
+                                onClick: () => window.open(f.viewUrl, '_blank', 'noopener') },
+                            ]}/>
                           </div>
                         </motion.div>
                       )
@@ -1298,31 +1359,24 @@ export default function ApuntesPage({ onBack }) {
                           </div>
                         </div>
                         <div className="ap-file-btns" onClick={e => e.stopPropagation()}>
-                          <button className="ap-dl" onClick={() => window.open(`${API}/download?key=${encodeURIComponent(f.key)}`, '_blank')} title="Descargar">
-                            <Download size={16}/>
-                          </button>
-                          {/* Mover a una subcarpeta: cualquier persona logueada (orden colaborativo) */}
-                          {isSignedIn && (
-                            <button className="ap-edit" onClick={() => openMove(f)} title="Mover a otra carpeta">
-                              <FolderInput size={15}/>
-                            </button>
-                          )}
-                          {/* Renombrar: el dueño (según el servidor), o el admin */}
-                          {(isAdmin || f.owned || isOwned(f.key)) && (
-                            <button className="ap-edit" onClick={() => renameFile(f)} title="Renombrar archivo">
-                              <Pencil size={14}/>
-                            </button>
-                          )}
-                          {/* Borrar: el dueño (según el servidor), o el admin (cualquier archivo) */}
-                          {isAdmin ? (
-                            <button className="ap-del" onClick={() => adminDeleteFile(f.key)} title="Eliminar (admin)">
-                              <Trash2 size={15}/>
-                            </button>
-                          ) : (f.owned || isOwned(f.key)) && (
-                            <button className="ap-del" onClick={() => deleteFile(f.key)} title="Eliminar mi apunte">
-                              <Trash2 size={15}/>
-                            </button>
-                          )}
+                          <FileActions actions={[
+                            { key: 'dl', icon: <Download size={15}/>, title: 'Descargar', className: 'ap-fan-item--dl',
+                              onClick: () => window.open(`${API}/download?key=${encodeURIComponent(f.key)}`, '_blank') },
+                            // Mover a una subcarpeta: cualquier persona logueada (orden colaborativo)
+                            ...(isSignedIn ? [{ key: 'move', icon: <FolderInput size={15}/>, title: 'Mover a otra carpeta',
+                              onClick: () => openMove(f) }] : []),
+                            // Renombrar: el dueño (según el servidor), o el admin
+                            ...((isAdmin || f.owned || isOwned(f.key)) ? [{ key: 'ren', icon: <Pencil size={14}/>, title: 'Renombrar archivo',
+                              onClick: () => renameFile(f) }] : []),
+                            // Borrar: el dueño (según el servidor), o el admin (cualquier archivo)
+                            ...(isAdmin
+                              ? [{ key: 'del', icon: <Trash2 size={14}/>, title: 'Eliminar (admin)', className: 'ap-fan-item--del',
+                                  onClick: () => adminDeleteFile(f.key) }]
+                              : (f.owned || isOwned(f.key))
+                                ? [{ key: 'del', icon: <Trash2 size={14}/>, title: 'Eliminar mi apunte', className: 'ap-fan-item--del',
+                                    onClick: () => deleteFile(f.key) }]
+                                : []),
+                          ]}/>
                         </div>
                       </motion.div>
                     )
