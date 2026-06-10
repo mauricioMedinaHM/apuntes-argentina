@@ -543,7 +543,25 @@ function renameMetaKeys(obj, oldPath, newPath, { prefixMatch = true } = {}) {
 // ══════════════════════════════════════════════════════════════════════════
 
 /** Health check */
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (req, res) => {
+  // Diagnóstico temporal: ?deep=1 prueba el listado de R2 en este runtime
+  // (solo conteos y códigos de error — nunca claves ni contenido)
+  if (req.query.deep === '1') {
+    const out = { status: 'ok', bucket: BUCKET, node: process.version }
+    try {
+      const all = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, MaxKeys: 1000 }))
+      out.listAll = { count: (all.Contents ?? []).length, truncated: !!all.IsTruncated }
+    } catch (err) { out.listAll = { error: err.name, code: err.$metadata?.httpStatusCode } }
+    try {
+      const pre = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'UDA/', MaxKeys: 100 }))
+      out.listPrefix = { count: (pre.Contents ?? []).length }
+    } catch (err) { out.listPrefix = { error: err.name, code: err.$metadata?.httpStatusCode } }
+    try {
+      const del = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'UDA/', Delimiter: '/', MaxKeys: 100 }))
+      out.listDelim = { count: (del.Contents ?? []).length, prefixes: (del.CommonPrefixes ?? []).length }
+    } catch (err) { out.listDelim = { error: err.name, code: err.$metadata?.httpStatusCode } }
+    return res.json(out)
+  }
   res.json({ status: 'ok', bucket: BUCKET })
 })
 
