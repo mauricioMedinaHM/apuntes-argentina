@@ -63,10 +63,18 @@ function sanitizeKey(key) {
   if (typeof key !== 'string') return ''
   // Bloquea acceso a archivos internos del bucket
   if (key.startsWith('_meta/') || key.startsWith('index.json')) return ''
-  // Solo permite paths del formato uni/carrera/materia/archivo
+  // Solo permite paths del formato uni/carrera/materia[/sub[/sub]]/archivo
   const parts = key.split('/')
   if (parts.length < 4 || parts.length > 6) return ''
   return parts.map(sanitizePath).filter(Boolean).join('/')
+}
+
+// Subcarpetas dentro de una materia: hasta 2 niveles de profundidad
+// (las keys del bucket tienen máximo 6 segmentos: uni/carrera/materia/sub/sub/archivo)
+const MAX_SUBFOLDER_DEPTH = 2
+function sanitizeSubPath(raw) {
+  if (typeof raw !== 'string' || !raw) return []
+  return raw.split('/').map(sanitizePath).filter(Boolean).slice(0, MAX_SUBFOLDER_DEPTH)
 }
 
 // ── S3 client ─────────────────────────────────────────────────────────────
@@ -343,15 +351,16 @@ async function buildTree() {
   } catch {}
 
   // 3) Carpetas creadas explícitamente por las personas (persisten aunque estén vacías)
+  // Solo keys con forma de path real (descarta entradas corruptas tipo "0", "1")
   try {
     const folders = await readFolders()
     for (const path of Object.keys(folders.careers)) {
       const [uni, career] = path.split('/')
-      addCareer(uni, career)
+      if (uni && career) addCareer(uni, career)
     }
     for (const path of Object.keys(folders.subjects)) {
       const [uni, career, subject] = path.split('/')
-      addSubject(uni, career, subject)
+      if (uni && career && subject) addSubject(uni, career, subject)
     }
   } catch {}
 
@@ -456,19 +465,47 @@ function toFolderMap(x) {
 }
 async function readFolders() {
   const f = await readMeta('_meta/folders.json')
-  return { careers: toFolderMap(f.careers), subjects: toFolderMap(f.subjects) }
+  return { careers: toFolderMap(f.careers), subjects: toFolderMap(f.subjects), subfolders: toFolderMap(f.subfolders) }
 }
 
-/** Registra una carrera y/o materia en folders.json (idempotente), guardando el creador */
-async function registerFolders({ careerPath, subjectPath, by = '' } = {}) {
+/** Registra una carrera, materia y/o subcarpeta en folders.json (idempotente), guardando el creador */
+async function registerFolders({ careerPath, subjectPath, subfolderPath, by = '' } = {}) {
   try {
     const folders = await readFolders()
     let changed = false
     const now = new Date().toISOString()
     if (careerPath && !folders.careers[careerPath])  { folders.careers[careerPath]   = { by, at: now }; changed = true }
     if (subjectPath && !folders.subjects[subjectPath]) { folders.subjects[subjectPath] = { by, at: now }; changed = true }
+    if (subfolderPath && !folders.subfolders[subfolderPath]) { folders.subfolders[subfolderPath] = { by, at: now }; changed = true }
     if (changed) await writeMeta('_meta/folders.json', folders)
   } catch (err) { console.error('[folders] register', err.message) }
+}
+
+// Meta-archivos cuyas keys son keys de archivos del bucket (hay que migrarlas
+// cuando un archivo se renombra o se mueve, para no perder nada)
+const FILE_KEYED_METAS = ['_meta/uploads.json', '_meta/ratings.json', '_meta/comments.json']
+
+/** Migra las entradas de uploads/ratings/comments cuando cambian las keys de archivos */
+async function migrateFileMeta(pairs) {
+  if (!pairs.length) return
+  for (const metaKey of FILE_KEYED_METAS) {
+    const data = await readMeta(metaKey)
+    let changed = false
+    for (const { oldKey, newKey } of pairs) {
+      if (data[oldKey] !== undefined) { data[newKey] = data[oldKey]; delete data[oldKey]; changed = true }
+    }
+    if (changed) await writeMeta(metaKey, data)
+  }
+}
+
+/** Limpia ratings y comentarios de un archivo eliminado (uploads se limpia aparte) */
+async function removeFileMeta(key) {
+  for (const metaKey of ['_meta/ratings.json', '_meta/comments.json']) {
+    try {
+      const data = await readMeta(metaKey)
+      if (data[key] !== undefined) { delete data[key]; await writeMeta(metaKey, data) }
+    } catch (err) { console.error('[meta] cleanup', err.message) }
+  }
 }
 
 /** Mueve todos los objetos de un prefijo a otro (copy + delete). Devuelve [{oldKey,newKey}] */
@@ -522,27 +559,53 @@ app.get('/api/files', treeLimiter, async (req, res) => {
   const uni     = sanitizePath(req.query.university)
   const career  = sanitizePath(req.query.career)
   const subject = sanitizePath(req.query.subject)
-  log('GET', '/api/files', `${uni}/${career}/${subject}`)
+  const subParts = sanitizeSubPath(req.query.path)   // subcarpeta actual (puede ser '')
+  log('GET', '/api/files', `${uni}/${career}/${subject}${subParts.length ? '/' + subParts.join('/') : ''}`)
 
   if (!uni || !career || !subject)
     return res.status(400).json({ error: 'Parámetros requeridos: university, career, subject' })
 
   try {
-    const prefix = `${uni}/${career}/${subject}/`
-    const result = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix }))
+    const prefix = [uni, career, subject, ...subParts].join('/') + '/'
+    // Delimiter '/' lista solo este nivel: archivos directos + subcarpetas (CommonPrefixes)
+    const result = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix, Delimiter: '/' }))
     const files = (result.Contents ?? [])
       .filter(o => !o.Key.endsWith('/') && !o.Key.startsWith('_meta/'))
       .map(o => ({ type: 'file', key: o.Key, name: o.Key.split('/').pop(), size: o.Size, lastModified: o.LastModified, owned: false }))
 
-    // Marcar los archivos del usuario logueado (para mostrarle SOLO a él el botón de borrar)
     const { userId } = getAuth(req)
+
+    // Subcarpetas: derivadas de archivos físicos + registradas explícitamente (aunque estén vacías)
+    const subNames = new Set(
+      (result.CommonPrefixes ?? [])
+        .map(p => p.Prefix.slice(prefix.length).replace(/\/$/, ''))
+        .filter(Boolean)
+    )
+    const registered = await readFolders()
+    for (const p of Object.keys(registered.subfolders)) {
+      if (p.startsWith(prefix)) {
+        const rest = p.slice(prefix.length)
+        if (rest && !rest.includes('/')) subNames.add(rest)
+      }
+    }
+    const subfolderItems = [...subNames].sort((a, b) => a.localeCompare(b, 'es')).map(name => {
+      const meta = registered.subfolders[prefix + name] ?? {}
+      return {
+        type: 'subfolder',
+        name,
+        path: [...subParts, name].join('/'),
+        owned: !!(userId && meta.by && meta.by === userId),
+      }
+    })
+
+    // Marcar los archivos del usuario logueado (para mostrarle SOLO a él el botón de borrar)
     if (userId && files.length > 0) {
       const uploads = await readMeta('_meta/uploads.json')
       for (const f of files) f.owned = uploads[f.key]?.uploaderId === userId
     }
 
-    // Carpetas de Drive registradas para esta materia
-    const links = await readMeta('_meta/drive-links.json')
+    // Carpetas de Drive registradas para esta materia (solo a nivel raíz de la materia)
+    const links = subParts.length === 0 ? await readMeta('_meta/drive-links.json') : {}
     const folders = links[`${uni}/${career}/${subject}`] ?? []
 
     const driveItems = []
@@ -585,7 +648,7 @@ app.get('/api/files', treeLimiter, async (req, res) => {
       }
     }
 
-    res.json([...driveItems, ...files])
+    res.json([...subfolderItems, ...driveItems, ...files])
   } catch (err) { serverError(res, 'api', err) }
 })
 
@@ -680,9 +743,10 @@ app.delete('/api/folder', requireAuthApi, requireAdmin, async (req, res) => {
     const hasDrive = Object.keys(links).some(p => p === target || p.startsWith(target + '/'))
     if (hasDrive) return res.status(409).json({ error: 'La carpeta tiene carpetas de Drive vinculadas. Quitalas primero.' })
 
-    // Desregistrar de folders.json (la carrera arrastra sus materias)
+    // Desregistrar de folders.json (la carrera arrastra sus materias y subcarpetas)
     const folders = await readFolders()
     for (const p of Object.keys(folders.subjects)) if (p === target || p.startsWith(target + '/')) delete folders.subjects[p]
+    for (const p of Object.keys(folders.subfolders)) if (p.startsWith(target + '/')) delete folders.subfolders[p]
     if (!subject) delete folders.careers[target]
     await writeMeta('_meta/folders.json', folders)
 
@@ -736,24 +800,14 @@ app.post('/api/folder/rename', requireAuthApi, async (req, res) => {
     // 1) Mover archivos físicos del bucket
     const moved = await movePrefix(`${oldPath}/`, `${newPath}/`)
 
-    // 2) Actualizar uploads.json y ratings.json (las keys cambian)
-    if (moved.length) {
-      const uploads = await readMeta('_meta/uploads.json')
-      let u = false
-      for (const m of moved) if (uploads[m.oldKey]) { uploads[m.newKey] = uploads[m.oldKey]; delete uploads[m.oldKey]; u = true }
-      if (u) await writeMeta('_meta/uploads.json', uploads)
-
-      const ratings = await readMeta('_meta/ratings.json')
-      let r = false
-      for (const m of moved) if (ratings[m.oldKey]) { ratings[m.newKey] = ratings[m.oldKey]; delete ratings[m.oldKey]; r = true }
-      if (r) await writeMeta('_meta/ratings.json', ratings)
-    }
+    // 2) Actualizar uploads.json, ratings.json y comments.json (las keys cambian)
+    await migrateFileMeta(moved)
 
     // 3) Actualizar links de Drive (las path-keys cambian)
     const links = await readMeta('_meta/drive-links.json')
     if (renameMetaKeys(links, oldPath, newPath)) await writeMeta('_meta/drive-links.json', links)
 
-    // 4) Actualizar folders.json (carrera arrastra sus materias)
+    // 4) Actualizar folders.json (carrera arrastra sus materias y subcarpetas)
     const f = await readFolders()
     if (isSubject) {
       f.subjects[newPath] = f.subjects[oldPath] ?? { by: userId, at: new Date().toISOString() }
@@ -765,11 +819,372 @@ app.post('/api/folder/rename', requireAuthApi, async (req, res) => {
         if (p.startsWith(oldPath + '/')) { f.subjects[newPath + p.slice(oldPath.length)] = f.subjects[p]; delete f.subjects[p] }
       }
     }
+    renameMetaKeys(f.subfolders, oldPath, newPath)
     await writeMeta('_meta/folders.json', f)
 
     await updateIndex()
     res.json({ success: true, oldPath, newPath, movedFiles: moved.length })
   } catch (err) { serverError(res, 'rename', err) }
+})
+
+// ── Subcarpetas dentro de una materia ───────────────────────────────────────
+// Cualquier persona logueada puede crear subcarpetas y mover archivos adentro
+// (sirven para ordenar el contenido: "Parciales", "Resúmenes", "Cátedra X", etc.)
+
+const folderMutateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,  // 1 hora
+  max: 40,
+  message: { error: 'Demasiadas operaciones de carpetas. Intentá de nuevo más tarde.' },
+})
+
+/** Crear una subcarpeta dentro de una materia. Requiere sesión. */
+app.post('/api/subfolder', folderMutateLimiter, requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  const uni     = sanitizePath(req.body.university)
+  const career  = sanitizePath(req.body.career)
+  const subject = sanitizePath(req.body.subject)
+  const parent  = sanitizeSubPath(req.body.path)   // dónde se crea ('' = raíz de la materia)
+  const name    = sanitizePath(req.body.name)
+  log('POST', '/api/subfolder', `${uni}/${career}/${subject}/${[...parent, name].join('/')}`)
+
+  if (!uni || !career || !subject || !name)
+    return res.status(400).json({ error: 'university, career, subject y name son requeridos' })
+  if (parent.length >= MAX_SUBFOLDER_DEPTH)
+    return res.status(400).json({ error: `Máximo ${MAX_SUBFOLDER_DEPTH} niveles de subcarpetas` })
+
+  try {
+    const full = [uni, career, subject, ...parent, name].join('/')
+    const folders = await readFolders()
+    if (folders.subfolders[full]) return res.status(409).json({ error: 'Ya existe una subcarpeta con ese nombre' })
+    // También colisiona si existe físicamente (con archivos pero sin registro):
+    // evita que alguien la "reclame" y gane permiso de renombrar archivos ajenos
+    const listed = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${full}/`, MaxKeys: 1 }))
+    if ((listed.Contents ?? []).length) return res.status(409).json({ error: 'Ya existe una subcarpeta con ese nombre' })
+    await registerFolders({
+      careerPath: `${uni}/${career}`,
+      subjectPath: `${uni}/${career}/${subject}`,
+      subfolderPath: full,
+      by: userId,
+    })
+    await updateIndex()
+    res.json({ success: true, name, path: [...parent, name].join('/') })
+  } catch (err) { serverError(res, 'subfolder', err) }
+})
+
+/** Renombrar una subcarpeta. Solo el creador o un admin. Mueve archivos y metadatos. */
+app.post('/api/subfolder/rename', folderMutateLimiter, requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  const uni     = sanitizePath(req.body.university)
+  const career  = sanitizePath(req.body.career)
+  const subject = sanitizePath(req.body.subject)
+  const subPath = sanitizeSubPath(req.body.path)   // path relativo de la subcarpeta a renombrar
+  const newName = sanitizePath(req.body.newName)
+  log('POST', '/api/subfolder/rename', `${uni}/${career}/${subject}/${subPath.join('/')} → ${newName}`)
+
+  if (!uni || !career || !subject || !subPath.length || !newName)
+    return res.status(400).json({ error: 'university, career, subject, path y newName son requeridos' })
+
+  const oldPath = [uni, career, subject, ...subPath].join('/')
+  const newPath = [uni, career, subject, ...subPath.slice(0, -1), newName].join('/')
+  if (oldPath === newPath) return res.json({ success: true, unchanged: true })
+
+  try {
+    const folders = await readFolders()
+    const meta = folders.subfolders[oldPath]
+    const admin = await isAdminUser(req)
+    if (!admin && !(meta && meta.by && meta.by === userId))
+      return res.status(403).json({ error: 'Solo quien creó la subcarpeta (o un admin) puede renombrarla' })
+
+    if (folders.subfolders[newPath]) return res.status(409).json({ error: 'Ya existe una subcarpeta con ese nombre' })
+    const destListed = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${newPath}/`, MaxKeys: 1 }))
+    if ((destListed.Contents ?? []).length) return res.status(409).json({ error: 'Ya existe una subcarpeta con ese nombre' })
+
+    const moved = await movePrefix(`${oldPath}/`, `${newPath}/`)
+    await migrateFileMeta(moved)
+
+    const f = await readFolders()
+    renameMetaKeys(f.subfolders, oldPath, newPath)
+    if (!f.subfolders[newPath]) f.subfolders[newPath] = meta ?? { by: userId, at: new Date().toISOString() }
+    await writeMeta('_meta/folders.json', f)
+
+    res.json({ success: true, oldPath, newPath, movedFiles: moved.length })
+  } catch (err) { serverError(res, 'subfolder-rename', err) }
+})
+
+/** Eliminar una subcarpeta vacía. Solo el creador o un admin. Nunca borra archivos. */
+app.delete('/api/subfolder', folderMutateLimiter, requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  const uni     = sanitizePath(req.body.university)
+  const career  = sanitizePath(req.body.career)
+  const subject = sanitizePath(req.body.subject)
+  const subPath = sanitizeSubPath(req.body.path)
+  log('DELETE', '/api/subfolder', `${uni}/${career}/${subject}/${subPath.join('/')}`)
+
+  if (!uni || !career || !subject || !subPath.length)
+    return res.status(400).json({ error: 'university, career, subject y path son requeridos' })
+
+  const target = [uni, career, subject, ...subPath].join('/')
+
+  try {
+    const folders = await readFolders()
+    const meta = folders.subfolders[target]
+    const admin = await isAdminUser(req)
+    if (!admin && !(meta && meta.by && meta.by === userId))
+      return res.status(403).json({ error: 'Solo quien creó la subcarpeta (o un admin) puede eliminarla' })
+
+    const listed = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${target}/`, MaxKeys: 1 }))
+    if ((listed.Contents ?? []).length)
+      return res.status(409).json({ error: 'La subcarpeta tiene archivos. Movelos o eliminalos primero.' })
+    // Tampoco se borra si tiene subcarpetas registradas adentro (pueden ser de otra persona)
+    if (Object.keys(folders.subfolders).some(p => p.startsWith(target + '/')))
+      return res.status(409).json({ error: 'La subcarpeta tiene subcarpetas adentro. Eliminalas primero.' })
+
+    delete folders.subfolders[target]
+    await writeMeta('_meta/folders.json', folders)
+    res.json({ success: true })
+  } catch (err) { serverError(res, 'subfolder', err) }
+})
+
+/** Todas las subcarpetas de una materia (para el selector de "mover archivo") */
+app.get('/api/subfolders', treeLimiter, async (req, res) => {
+  const uni     = sanitizePath(req.query.university)
+  const career  = sanitizePath(req.query.career)
+  const subject = sanitizePath(req.query.subject)
+  if (!uni || !career || !subject)
+    return res.status(400).json({ error: 'Parámetros requeridos: university, career, subject' })
+
+  try {
+    const base = `${uni}/${career}/${subject}/`
+    const set = new Set()
+
+    // Registradas explícitamente
+    const folders = await readFolders()
+    for (const p of Object.keys(folders.subfolders)) if (p.startsWith(base)) set.add(p.slice(base.length))
+
+    // Derivadas de archivos físicos en subcarpetas
+    let token
+    do {
+      const listed = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: base, ContinuationToken: token }))
+      for (const o of (listed.Contents ?? [])) {
+        const rel = o.Key.slice(base.length).split('/')
+        for (let d = 1; d < rel.length && d <= MAX_SUBFOLDER_DEPTH; d++) set.add(rel.slice(0, d).join('/'))
+      }
+      token = listed.IsTruncated ? listed.NextContinuationToken : undefined
+    } while (token)
+
+    res.json([...set].sort((a, b) => a.localeCompare(b, 'es')))
+  } catch (err) { serverError(res, 'api', err) }
+})
+
+// ── Renombrar / mover archivos ──────────────────────────────────────────────
+
+const fileMutateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,  // 1 hora
+  max: 60,
+  message: { error: 'Demasiadas operaciones sobre archivos. Intentá de nuevo más tarde.' },
+})
+
+/** Copia un objeto a una key nueva y borra el original, migrando los metadatos */
+async function moveObject(oldKey, newKey) {
+  const copySource = `${BUCKET}/${oldKey.split('/').map(encodeURIComponent).join('/')}`
+  await s3.send(new CopyObjectCommand({ Bucket: BUCKET, CopySource: copySource, Key: newKey }))
+  await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: oldKey }))
+  await migrateFileMeta([{ oldKey, newKey }])
+}
+
+/**
+ * Renombrar un archivo. Solo quien lo subió (o un admin).
+ * Conserva siempre la extensión original — el contenido no cambia.
+ */
+app.post('/api/file/rename', fileMutateLimiter, requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  const key = sanitizeKey(req.body.key)
+  const newNameRaw = typeof req.body.newName === 'string' ? req.body.newName : ''
+  log('POST', '/api/file/rename', `${key} → ${newNameRaw} (user: ${userId})`)
+
+  if (!key || !newNameRaw.trim()) return res.status(400).json({ error: 'key y newName son requeridos' })
+
+  // Base limpia (sin extensión: la original se conserva siempre).
+  // Colapsa puntos repetidos y los saca de los bordes — una key con ".." quedaría
+  // inaccesible para el resto de la API (sanitizeKey los elimina al comparar).
+  const base = newNameRaw
+    .normalize('NFC')
+    .replace(/\.\w+$/, '')
+    .replace(/[^\w.\- áéíóúÁÉÍÓÚñÑüÜ]/g, '_')
+    .replace(/\.{2,}/g, '.')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .slice(0, 100)
+  if (!base) return res.status(400).json({ error: 'El nombre no es válido' })
+
+  const ext = key.match(/\.\w+$/)?.[0]?.toLowerCase() ?? ''
+  const dir = key.split('/').slice(0, -1).join('/')
+  const newKey = `${dir}/${base}${ext}`
+  // Defensa final: la key nueva tiene que sobrevivir intacta a sanitizeKey,
+  // si no el archivo quedaría huérfano (imposible de previsualizar o borrar)
+  if (sanitizeKey(newKey) !== newKey) return res.status(400).json({ error: 'El nombre no es válido' })
+  if (newKey === key) return res.json({ success: true, unchanged: true, key, name: base + ext })
+
+  try {
+    const uploads = await readMeta('_meta/uploads.json')
+    const record = uploads[key]
+    const admin = await isAdminUser(req)
+    if (!admin && !(record && record.uploaderId === userId))
+      return res.status(403).json({ error: 'Solo quien subió el archivo (o un admin) puede renombrarlo' })
+
+    // El original tiene que existir
+    try { await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key })) }
+    catch { return res.status(404).json({ error: 'El archivo no existe' }) }
+
+    // Colisión: no pisar otro archivo
+    let destExists = false
+    try { await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: newKey })); destExists = true } catch {}
+    if (destExists) return res.status(409).json({ error: 'Ya existe un archivo con ese nombre' })
+
+    await moveObject(key, newKey)
+    res.json({ success: true, key: newKey, name: base + ext })
+  } catch (err) { serverError(res, 'file-rename', err) }
+})
+
+/**
+ * Mover un archivo a otra subcarpeta DE LA MISMA materia.
+ * Lo puede hacer cualquier persona logueada (es solo orden, no cambia el contenido).
+ */
+app.post('/api/file/move', fileMutateLimiter, requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  const key = sanitizeKey(req.body.key)
+  const destParts = sanitizeSubPath(req.body.path)   // '' = raíz de la materia
+  log('POST', '/api/file/move', `${key} → /${destParts.join('/')} (user: ${userId})`)
+
+  if (!key) return res.status(400).json({ error: 'key inválido' })
+
+  const parts = key.split('/')
+  const [uni, career, subject] = parts
+  const filename = parts[parts.length - 1]
+  const newKey = [uni, career, subject, ...destParts, filename].join('/')
+  if (newKey === key) return res.json({ success: true, unchanged: true, key })
+
+  try {
+    // El destino debe ser la raíz o una subcarpeta que exista (registrada o con archivos)
+    if (destParts.length) {
+      const destPath = [uni, career, subject, ...destParts].join('/')
+      const folders = await readFolders()
+      if (!folders.subfolders[destPath]) {
+        const listed = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${destPath}/`, MaxKeys: 1 }))
+        if (!(listed.Contents ?? []).length)
+          return res.status(404).json({ error: 'La subcarpeta de destino no existe' })
+      }
+    }
+
+    try { await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key })) }
+    catch { return res.status(404).json({ error: 'El archivo no existe' }) }
+
+    let destExists = false
+    try { await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: newKey })); destExists = true } catch {}
+    if (destExists) return res.status(409).json({ error: 'Ya existe un archivo con ese nombre en el destino' })
+
+    await moveObject(key, newKey)
+    res.json({ success: true, key: newKey })
+  } catch (err) { serverError(res, 'file-move', err) }
+})
+
+// ══════════════════════════════════════════════════════════════════════════
+// COMENTARIOS — feedback estilo classroom sobre cada apunte
+// _meta/comments.json = { [fileKey]: [{ id, userId, name, avatar, text, at }] }
+// ══════════════════════════════════════════════════════════════════════════
+
+const COMMENT_MAX_LEN = 1000
+const COMMENTS_PER_FILE = 200
+
+const commentLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 min
+  max: 10,
+  message: { error: 'Demasiados comentarios seguidos. Esperá un momento.' },
+})
+
+/** Forma pública de un comentario (nunca expone el userId de Clerk) */
+function publicComment(c, userId, admin) {
+  return {
+    id: c.id, name: c.name, avatar: c.avatar ?? null, text: c.text, at: c.at,
+    mine: !!userId && c.userId === userId,
+    canDelete: admin || (!!userId && c.userId === userId),
+  }
+}
+
+/** GET — comentarios de un archivo (lectura pública) */
+app.get('/api/comments', treeLimiter, async (req, res) => {
+  const key = sanitizeKey(req.query.key)
+  if (!key) return res.status(400).json({ error: 'key inválido' })
+
+  try {
+    const all = await readMeta('_meta/comments.json')
+    const list = Array.isArray(all[key]) ? all[key] : []
+    const { userId } = getAuth(req)
+    const admin = userId ? await isAdminUser(req) : false
+    res.json(list.map(c => publicComment(c, userId, admin)))
+  } catch (err) { serverError(res, 'comments', err) }
+})
+
+/** POST — comentar un apunte. Requiere sesión. */
+app.post('/api/comments', commentLimiter, requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  const key = sanitizeKey(req.body.key)
+  const text = (typeof req.body.text === 'string' ? req.body.text : '').trim().slice(0, COMMENT_MAX_LEN)
+  log('POST', '/api/comments', `${key} (user: ${userId})`)
+
+  if (!key || !text) return res.status(400).json({ error: 'key y text son requeridos' })
+
+  try {
+    // Solo se puede comentar un archivo que existe realmente
+    try { await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key })) }
+    catch { return res.status(404).json({ error: 'El archivo no existe' }) }
+
+    // Nombre y avatar públicos del autor (snapshot al momento de comentar)
+    let name = 'Estudiante', avatar = null
+    try {
+      const u = await clerkClient.users.getUser(userId)
+      name = [u.firstName, u.lastName].filter(Boolean).join(' ')
+        || u.username
+        || u.emailAddresses?.[0]?.emailAddress?.split('@')[0]
+        || 'Estudiante'
+      avatar = u.imageUrl ?? null
+    } catch {}
+
+    const all = await readMeta('_meta/comments.json')
+    if (!Array.isArray(all[key])) all[key] = []
+    if (all[key].length >= COMMENTS_PER_FILE)
+      return res.status(409).json({ error: 'Este apunte alcanzó el máximo de comentarios' })
+
+    const comment = { id: randomBytes(8).toString('hex'), userId, name, avatar, text, at: new Date().toISOString() }
+    all[key].push(comment)
+    await writeMeta('_meta/comments.json', all)
+    res.json(publicComment(comment, userId, false))
+  } catch (err) { serverError(res, 'comments', err) }
+})
+
+/** DELETE — borrar un comentario. Solo el autor o un admin. */
+app.delete('/api/comments', commentLimiter, requireAuthApi, async (req, res) => {
+  const { userId } = getAuth(req)
+  const key = sanitizeKey(req.body.key)
+  const id  = typeof req.body.id === 'string' ? req.body.id : ''
+  log('DELETE', '/api/comments', `${key} — ${id} (user: ${userId})`)
+
+  if (!key || !id) return res.status(400).json({ error: 'key e id son requeridos' })
+
+  try {
+    const all = await readMeta('_meta/comments.json')
+    const list = Array.isArray(all[key]) ? all[key] : []
+    const c = list.find(x => x.id === id)
+    if (!c) return res.status(404).json({ error: 'Comentario no encontrado' })
+
+    const admin = await isAdminUser(req)
+    if (!admin && c.userId !== userId)
+      return res.status(403).json({ error: 'Solo el autor (o un admin) puede borrar el comentario' })
+
+    all[key] = list.filter(x => x.id !== id)
+    if (all[key].length === 0) delete all[key]
+    await writeMeta('_meta/comments.json', all)
+    res.json({ success: true })
+  } catch (err) { serverError(res, 'comments', err) }
 })
 
 // ── Nombre de archivo limpio (compartido) ──────────────────────────────────
@@ -942,9 +1357,10 @@ app.delete('/api/admin/file', requireAuthApi, requireAdmin, async (req, res) => 
 
   try {
     await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }))
-    // Limpiar el registro de uploads si existe
+    // Limpiar el registro de uploads si existe + ratings y comentarios del archivo
     const uploads = await readMeta('_meta/uploads.json')
     if (uploads[rawKey]) { delete uploads[rawKey]; await writeMeta('_meta/uploads.json', uploads) }
+    await removeFileMeta(key)
     await updateIndex()
     res.json({ success: true })
   } catch (err) { serverError(res, 'api', err) }
@@ -1082,10 +1498,11 @@ app.post('/api/upload-url', uploadLimiter, requireAuthApi, async (req, res) => {
   const uni     = sanitizePath(req.body.university)
   const career  = sanitizePath(req.body.career)
   const subject = sanitizePath(req.body.subject)
+  const subParts = sanitizeSubPath(req.body.path)   // subcarpeta destino (opcional)
   const filename = typeof req.body.filename === 'string' ? req.body.filename : ''
   const size = Number(req.body.size) || 0
 
-  log('POST', '/api/upload-url', `${uni}/${career}/${subject} — ${filename} (user: ${userId})`)
+  log('POST', '/api/upload-url', `${uni}/${career}/${subject}${subParts.length ? '/' + subParts.join('/') : ''} — ${filename} (user: ${userId})`)
 
   if (!uni || !career || !subject) return res.status(400).json({ error: 'university, career y subject son requeridos' })
   if (!filename)                   return res.status(400).json({ error: 'filename requerido' })
@@ -1096,7 +1513,7 @@ app.post('/api/upload-url', uploadLimiter, requireAuthApi, async (req, res) => {
   const contentType = EXT_TO_MIME[ext]
   if (!contentType) return res.status(415).json({ error: `Tipo de archivo no permitido (${ext || 'sin extensión'})` })
 
-  const key = `${uni}/${career}/${subject}/${clean}`
+  const key = [uni, career, subject, ...subParts, clean].join('/')
 
   try {
     const cmd = new PutObjectCommand({
@@ -1152,9 +1569,15 @@ app.post('/api/confirm-upload', requireAuthApi, async (req, res) => {
       return writeMeta('_meta/uploads.json', data)
     })
 
-    // Persistir la carpeta para que borrar el archivo no elimine la materia
-    const [fu, fc, fs] = key.split('/')
-    if (fu && fc && fs) await registerFolders({ careerPath: `${fu}/${fc}`, subjectPath: `${fu}/${fc}/${fs}`, by: userId })
+    // Persistir la carpeta (y subcarpeta si la hay) para que borrar el archivo no las elimine
+    const keyParts = key.split('/')
+    const [fu, fc, fs] = keyParts
+    if (fu && fc && fs) await registerFolders({
+      careerPath: `${fu}/${fc}`,
+      subjectPath: `${fu}/${fc}/${fs}`,
+      subfolderPath: keyParts.length > 4 ? keyParts.slice(0, -1).join('/') : null,
+      by: userId,
+    })
 
     await updateIndex()
 
@@ -1256,9 +1679,10 @@ app.delete(
 
       await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }))
 
-      // Limpiar el registro
+      // Limpiar el registro + ratings y comentarios del archivo
       delete uploads[rawKey]
       await writeMeta('_meta/uploads.json', uploads)
+      await removeFileMeta(key)
       updateIndex()
 
       res.json({ success: true })
@@ -1276,6 +1700,16 @@ app.get('/api/preview', downloadLimiter, async (req, res) => {
   try {
     const result = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))
     const filename = key.split('/').pop()
+    // El preview se embebe en un <iframe>/<object> desde el frontend, que en dev
+    // corre en otro origen (5173 vs 3002). El X-Frame-Options: SAMEORIGIN de helmet
+    // lo bloquea — ampliamos frame-ancestors a los orígenes permitidos, preservando
+    // el resto del CSP de helmet.
+    res.removeHeader('X-Frame-Options')
+    const csp = String(res.getHeader('Content-Security-Policy') ?? '')
+    const ancestors = `frame-ancestors 'self' ${ALLOWED.join(' ')}`
+    res.setHeader('Content-Security-Policy', csp.includes('frame-ancestors')
+      ? csp.replace(/frame-ancestors[^;]*/, ancestors)
+      : (csp ? `${csp};${ancestors}` : ancestors))
     res.setHeader('Content-Type', result.ContentType ?? 'application/octet-stream')
     res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(filename)}`)
     if (result.ContentLength) res.setHeader('Content-Length', result.ContentLength)

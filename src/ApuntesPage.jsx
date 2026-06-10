@@ -5,6 +5,7 @@ import {
   Download, ChevronRight, FolderOpen, FolderPlus,
   FileText, AlertCircle, Loader, Upload, Plus,
   X, Check, FileUp, Trash2, Lock, ExternalLink, Bug, Pencil,
+  FolderInput, Folder, MoreVertical,
 } from 'lucide-react'
 import { useAuth, useUser, SignInButton } from '@clerk/react'
 import { UNIVERSITIES, FACULTIES } from './universities.js'
@@ -37,6 +38,8 @@ const loadFavs = () => { try { return JSON.parse(localStorage.getItem('aa-favori
 const saveFavs = f => { try { localStorage.setItem('aa-favorites', JSON.stringify(f)) } catch {} }
 const hasVoted  = k => { try { return !!JSON.parse(localStorage.getItem('aa-votes') ?? '{}')[k] } catch { return false } }
 const markVoted = k => { try { const v = JSON.parse(localStorage.getItem('aa-votes') ?? '{}'); v[k] = true; localStorage.setItem('aa-votes', JSON.stringify(v)) } catch {} }
+// Cuando un archivo se renombra/mueve cambia su key: migrar la marca de "ya voté"
+const migrateVote = (oldKey, newKey) => { try { const v = JSON.parse(localStorage.getItem('aa-votes') ?? '{}'); if (v[oldKey]) { v[newKey] = true; delete v[oldKey]; localStorage.setItem('aa-votes', JSON.stringify(v)) } } catch {} }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 const fmt = b => !b ? '' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB'
@@ -59,6 +62,10 @@ const DriveIcon = ({ size = 16 }) => (
     <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
   </svg>
 )
+
+// Cache del bootstrap (árbol/ratings/uploads) a nivel módulo: al volver a entrar
+// al buscador con atrás/adelante no se muestra el loader — se refresca en silencio.
+let bootCache = null
 
 // ── Texto que se desliza suavemente si es muy largo (nombres de materias/apuntes) ──
 function MarqueeText({ text, className = '' }) {
@@ -83,6 +90,72 @@ function MarqueeText({ text, className = '' }) {
         {text}
       </span>
     </span>
+  )
+}
+
+// ── Abanico de acciones por archivo ─────────────────────────────────────────
+// Las acciones quedan escondidas detrás de un botón de opciones; al tocarlo se
+// despliegan en abanico hacia la izquierda y el centro pasa a ser una X para
+// cerrar. Mantiene las filas bien bajitas y la lista cómoda de leer.
+function FileActions({ actions }) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef(null)
+
+  // Cerrar al tocar afuera o con Escape
+  useEffect(() => {
+    if (!open) return
+    const onDoc = e => { if (!wrapRef.current?.contains(e.target)) setOpen(false) }
+    const onKey = e => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('pointerdown', onDoc); document.removeEventListener('keydown', onKey) }
+  }, [open])
+
+  if (actions.length === 0) return null
+
+  // Ángulos del abanico (hacia la izquierda del botón): arco centrado en 0°
+  const n = actions.length
+  const arc = Math.min(150, 60 * (n - 1))
+  const angles = n === 1 ? [0] : actions.map((_, i) => -arc / 2 + (arc / (n - 1)) * i)
+  const R = 52  // radio del abanico
+
+  return (
+    <div className={`ap-fan ${open ? 'ap-fan--open' : ''}`} ref={wrapRef}>
+      <AnimatePresence>
+        {open && actions.map((a, i) => {
+          const rad = (angles[i] * Math.PI) / 180
+          const x = -Math.cos(rad) * R   // hacia la izquierda
+          const y = Math.sin(rad) * R
+          return (
+            <motion.button
+              key={a.key}
+              className={`ap-fan-item ${a.className ?? ''}`}
+              title={a.title} aria-label={a.title}
+              initial={{ x: 0, y: 0, opacity: 0, scale: 0.3 }}
+              animate={{ x, y, opacity: 1, scale: 1 }}
+              exit={{ x: 0, y: 0, opacity: 0, scale: 0.3 }}
+              transition={{ type: 'spring', stiffness: 480, damping: 28, delay: i * 0.035 }}
+              onClick={() => { setOpen(false); a.onClick() }}
+            >
+              {a.icon}
+            </motion.button>
+          )
+        })}
+      </AnimatePresence>
+      <button
+        className={`ap-fan-trigger ${open ? 'ap-fan-trigger--open' : ''}`}
+        aria-label={open ? 'Cerrar opciones' : 'Opciones'}
+        aria-expanded={open}
+        title={open ? 'Cerrar' : 'Opciones'}
+        onClick={() => setOpen(o => !o)}
+      >
+        <motion.span className="ap-fan-trigger-icon"
+          animate={{ rotate: open ? 90 : 0 }}
+          transition={{ type: 'spring', stiffness: 420, damping: 24 }}>
+          {open ? <X size={17}/> : <MoreVertical size={17}/>}
+        </motion.span>
+      </button>
+    </div>
   )
 }
 
@@ -204,15 +277,18 @@ function UCard({ u, live, onSelect, fav }) {
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════════════════
 export default function ApuntesPage({ onBack }) {
-  const [uni,      setUni]      = useState(null)
-  const [career,   setCareer]   = useState(null)
-  const [subject,  setSubject]  = useState(null)
-  const [tree,     setTree]     = useState({ universities:[], careers:{}, subjects:{} })
+  // Si llegamos vía atrás/adelante del navegador (o un reload), arrancamos en el
+  // estado guardado en esa entrada del historial en vez de empezar de cero.
+  const savedNav = (typeof window !== 'undefined' && window.history.state?.aa) || null
+  const [uni,      setUni]      = useState(savedNav?.uni ?? null)
+  const [career,   setCareer]   = useState(savedNav?.career ?? null)
+  const [subject,  setSubject]  = useState(savedNav?.subject ?? null)
+  const [tree,     setTree]     = useState(bootCache?.tree ?? { universities:[], careers:{}, subjects:{} })
   const [files,    setFiles]    = useState([])
-  const [ratings,  setRatings]  = useState({})
-  const [uploads,  setUploads]  = useState({})  // key → { uploaderId }
+  const [ratings,  setRatings]  = useState(bootCache?.ratings ?? {})
+  const [uploads,  setUploads]  = useState(bootCache?.uploads ?? {})  // key → { uploaderId }
   const [favs,     setFavs]     = useState(loadFavs)
-  const [treeLoad, setTreeLoad] = useState(true)
+  const [treeLoad, setTreeLoad] = useState(!bootCache)
   const [filesLoad,setFilesLoad]= useState(false)
   const [creating, setCreating] = useState(null)
   const [newName,  setNewName]  = useState('')
@@ -222,11 +298,17 @@ export default function ApuntesPage({ onBack }) {
   const [search,   setSearch]   = useState('')
   const [points,   setPoints]   = useState(getPoints)
   const [pointsAnim, setPointsAnim] = useState(null)
-  const [preview,  setPreview]  = useState(null)   // file object to preview
+  const [preview,  setPreview]  = useState(savedNav?.preview ?? null)   // file object to preview
   const [driveForm, setDriveForm] = useState(null)  // { name, url } | null cuando se está agregando
   const [careerImport, setCareerImport] = useState(null)  // { url } | null — importar carrera completa de Drive
   const [importing, setImporting] = useState(false)
-  const [drivePath, setDrivePath] = useState([])    // navegación dentro de carpetas de Drive: [{driveId, folderId, name}]
+  const [drivePath, setDrivePath] = useState(savedNav?.drivePath ?? [])  // navegación dentro de carpetas de Drive: [{driveId, folderId, name}]
+  const [subPath,   setSubPath]   = useState(savedNav?.subPath ?? [])    // navegación dentro de subcarpetas de la materia: ['Parciales', ...]
+  const [creatingSub, setCreatingSub] = useState(false)  // creando una subcarpeta
+  const [subName,   setSubName]   = useState('')
+  const [moveFile,  setMoveFile]  = useState(null)  // archivo que se está moviendo (abre el selector de destino)
+  const [moveDests, setMoveDests] = useState(null)  // subcarpetas disponibles como destino (null = cargando)
+  const [filesVersion, setFilesVersion] = useState(0)  // bump para recargar la lista de archivos
   const [myFolders, setMyFolders] = useState({ careers: [], subjects: [] })  // carpetas creadas por mí (puedo renombrarlas)
   const { isSignedIn, getToken } = useAuth()
   const { user } = useUser()
@@ -245,9 +327,11 @@ export default function ApuntesPage({ onBack }) {
       fetch(`${API}/uploads`).then(okJson({})).catch(() => ({})),
     ]).then(([t, r, u]) => {
       // Garantiza la forma esperada aunque el backend devuelva algo inesperado
-      setTree(t && Array.isArray(t.universities) ? t : { universities:[], careers:{}, subjects:{} })
-      setRatings(r && typeof r === 'object' ? r : {})
-      setUploads(u && typeof u === 'object' ? u : {})
+      const tree    = t && Array.isArray(t.universities) ? t : { universities:[], careers:{}, subjects:{} }
+      const ratings = r && typeof r === 'object' ? r : {}
+      const uploads = u && typeof u === 'object' ? u : {}
+      setTree(tree); setRatings(ratings); setUploads(uploads)
+      bootCache = { tree, ratings, uploads }
     }).finally(() => setTreeLoad(false))
   }, [])
 
@@ -258,7 +342,7 @@ export default function ApuntesPage({ onBack }) {
     const inDrive = drivePath.length > 0
     const url = inDrive
       ? `${API}/drive-folder?id=${encodeURIComponent(drivePath[drivePath.length - 1].driveId)}&folderId=${encodeURIComponent(drivePath[drivePath.length - 1].folderId)}&sig=${encodeURIComponent(drivePath[drivePath.length - 1].sig ?? '')}`
-      : `${API}/files?university=${encodeURIComponent(uni)}&career=${encodeURIComponent(career)}&subject=${encodeURIComponent(subject)}`
+      : `${API}/files?university=${encodeURIComponent(uni)}&career=${encodeURIComponent(career)}&subject=${encodeURIComponent(subject)}&path=${encodeURIComponent(subPath.join('/'))}`
     ;(async () => {
       try {
         // Mandar el JWT para que el servidor marque qué archivos son míos (owned)
@@ -269,7 +353,7 @@ export default function ApuntesPage({ onBack }) {
       } catch { setFiles([]) }
       finally { setFilesLoad(false) }
     })()
-  }, [uni, career, subject, drivePath, isSignedIn])
+  }, [uni, career, subject, drivePath, subPath, filesVersion, isSignedIn])
 
   // Mis carpetas (las que creé) — para mostrar el botón de renombrar
   const refreshMyFolders = async () => {
@@ -286,57 +370,81 @@ export default function ApuntesPage({ onBack }) {
   useEffect(() => { if (creating) createRef.current?.focus() }, [creating])
 
   // ── Navigation ────────────────────────────────────────────────────────
-  const goUni = name => { setUni(name); setCareer(null); setSubject(null); setQueue([]); setCreating(null); setDrivePath([]) }
-  const goCareer = c => { setCareer(c); setSubject(null); setQueue([]); setCreating(null); setDrivePath([]) }
-  const goSubject = s => { setSubject(s); setQueue([]); setCreating(null); setDrivePath([]) }
+  const resetSubLevel = () => { setSubPath([]); setCreatingSub(false); setSubName(''); setMoveFile(null); setSearch('') }
+  const goUni = name => { setUni(name); setCareer(null); setSubject(null); setQueue([]); setCreating(null); setDrivePath([]); resetSubLevel() }
+  const goCareer = c => { setCareer(c); setSubject(null); setQueue([]); setCreating(null); setDrivePath([]); resetSubLevel() }
+  const goSubject = s => { setSubject(s); setQueue([]); setCreating(null); setDrivePath([]); resetSubLevel() }
   // Volver al nivel de carreras de la universidad actual (desde la ruta)
-  const goToUniRoot = () => { setCareer(null); setSubject(null); setDrivePath([]); setCreating(null); setQueue([]) }
+  const goToUniRoot = () => { setCareer(null); setSubject(null); setDrivePath([]); setCreating(null); setQueue([]); resetSubLevel() }
 
   // Navegación dentro de carpetas de Drive
   const enterDriveFolder = item => setDrivePath(p => [...p, { driveId: item.driveId, folderId: item.folderId, name: item.name, sig: item.sig }])
   const goDriveLevel = idx => setDrivePath(p => p.slice(0, idx))  // idx = cuántos niveles dejar
+
+  // Navegación dentro de subcarpetas de la materia
+  const enterSubfolder = f => { setSubPath(f.path.split('/')); setSearch(''); setCreatingSub(false); setSubName('') }
+  const goSubLevel = idx => { setSubPath(p => p.slice(0, idx)); setSearch(''); setCreatingSub(false); setSubName('') }
+
   const goBack = () => {
-    if (subject)       { setSubject(null); setCreating(null) }
-    else if (career)   { setCareer(null);  setCreating(null) }
-    else               { setUni(null) }
+    if (subPath.length)  { goSubLevel(subPath.length - 1) }
+    else if (subject)    { setSubject(null); setCreating(null); resetSubLevel() }
+    else if (career)     { setCareer(null);  setCreating(null) }
+    else                 { setUni(null) }
   }
 
-  // ── Botón "atrás" del navegador / Android ────────────────────────────────
-  // En vez de abandonar el sitio, sube un nivel: cierra el preview, sale de la
-  // carpeta de Drive y luego materia → carrera → universidad → landing.
-  // Devuelve true si consumió un nivel dentro del buscador (para re-armar la trampa).
-  const navBackRef = useRef(null)
-  navBackRef.current = () => {
-    if (preview)          { setPreview(null);                    return true }
-    if (drivePath.length) { setDrivePath(p => p.slice(0, -1));   return true }
-    if (subject)          { setSubject(null); setCreating(null); return true }
-    if (career)           { setCareer(null);  setCreating(null); return true }
-    if (uni)              { setUni(null);                         return true }
-    onBack()  // ya en el selector de universidades → volver a la landing
-    return false
-  }
+  // ── Historial real del navegador ──────────────────────────────────────────
+  // Cada nivel visitado (universidad, carrera, materia, subcarpeta, carpeta de
+  // Drive, preview) es una entrada del historial. Atrás vuelve a la vista
+  // anterior y adelante rehace el camino — sin salir nunca del sitio.
+  const restoringRef  = useRef(false)       // el próximo cambio de estado viene de atrás/adelante: no pushear
+  const lastNavKeyRef = useRef(undefined)   // undefined = primer render todavía no procesado
 
+  const navKey = s => JSON.stringify([
+    s.uni ?? null, s.career ?? null, s.subject ?? null,
+    s.subPath ?? [], (s.drivePath ?? []).map(d => d.driveId),
+    s.preview?.key ?? s.preview?.id ?? null,
+  ])
+
+  // Atrás/adelante: restaurar el estado guardado en la entrada del historial
   useEffect(() => {
-    const onPop = () => {
-      // El navegador ya consumió nuestra entrada "fantasma": subimos un nivel y,
-      // si seguimos dentro del buscador, re-armamos la trampa para el próximo "atrás".
-      if (navBackRef.current()) window.history.pushState({ aa: true }, '')
+    const onPop = e => {
+      const s = e.state?.aa
+      if (!s) return   // entrada de la landing — App.jsx se encarga de cambiar la vista
+      restoringRef.current = true
+      setUni(s.uni ?? null); setCareer(s.career ?? null); setSubject(s.subject ?? null)
+      setSubPath(s.subPath ?? []); setDrivePath(s.drivePath ?? []); setPreview(s.preview ?? null)
+      // Estado transitorio: formularios y modales no viajan en el tiempo
+      setCreating(null); setNewName(''); setCreatingSub(false); setSubName('')
+      setMoveFile(null); setSearch('')
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
-  // Arma UNA entrada "fantasma" la primera vez que se entra a un nivel navegable.
-  const trapArmed = useRef(false)
+  // Cada navegación nueva crea una entrada en el historial
   useEffect(() => {
-    const inside = !!(uni || preview)
-    if (inside && !trapArmed.current) {
-      window.history.pushState({ aa: true }, '')
-      trapArmed.current = true
-    } else if (!inside) {
-      trapArmed.current = false
+    const snap = { uni, career, subject, subPath, drivePath, preview }
+    const key = navKey(snap)
+
+    // Primer render: si esta entrada ya es nuestra (atrás/adelante/reload) no se
+    // pushea nada; si venimos de la landing, se crea la entrada raíz del buscador.
+    if (lastNavKeyRef.current === undefined) {
+      if (window.history.state?.aa) lastNavKeyRef.current = navKey(window.history.state.aa)
+      else { window.history.pushState({ aa: snap }, ''); lastNavKeyRef.current = key }
+      return
     }
-  }, [uni, preview])
+    if (restoringRef.current) { restoringRef.current = false; lastNavKeyRef.current = key; return }
+    if (key === lastNavKeyRef.current) return
+    window.history.pushState({ aa: snap }, '')
+    lastNavKeyRef.current = key
+  }, [uni, career, subject, subPath, drivePath, preview])
+
+  // Cerrar el preview: si su entrada es la actual del historial, volvemos atrás
+  // (así "adelante" puede reabrirlo y el stack no acumula duplicados)
+  const closePreview = () => {
+    if (window.history.state?.aa?.preview) window.history.back()
+    else setPreview(null)
+  }
 
   // ── Create folder ─────────────────────────────────────────────────────
   const confirmCreate = () => {
@@ -410,7 +518,7 @@ export default function ApuntesPage({ onBack }) {
       const urlRes = await fetch(`${API}/upload-url`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ university: uni, career, subject, filename: file.name, size: file.size }),
+        body: JSON.stringify({ university: uni, career, subject, path: subPath.join('/'), filename: file.name, size: file.size }),
       })
       if (!urlRes.ok) throw new Error(await readErr(urlRes))
       const { uploadUrl, key, name, contentType } = await urlRes.json()
@@ -593,6 +701,108 @@ export default function ApuntesPage({ onBack }) {
     } catch (err) { alert('No se pudo renombrar: ' + err.message) }
   }
 
+  // ── Subcarpetas dentro de la materia ──────────────────────────────────
+  // Cualquier persona logueada puede crear subcarpetas para ordenar los apuntes
+  const createSubfolder = async () => {
+    const name = subName.trim()
+    if (!name || !isSignedIn) return
+    try {
+      const res = await fetch(`${API}/subfolder`, {
+        method: 'POST', headers: await adminHeaders(),
+        body: JSON.stringify({ university: uni, career, subject, path: subPath.join('/'), name }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
+      const { name: clean, path } = await res.json()
+      setFiles(prev => [{ type: 'subfolder', name: clean, path, owned: true }, ...prev.filter(f => !(f.type === 'subfolder' && f.path === path))])
+      setSubName(''); setCreatingSub(false)
+    } catch (err) { alert('No se pudo crear la subcarpeta: ' + err.message) }
+  }
+
+  const renameSubfolder = async f => {
+    const input = window.prompt(`Nuevo nombre para la subcarpeta "${f.name}":`, f.name)
+    if (input == null) return
+    const newName = input.trim()
+    if (!newName || newName === f.name) return
+    try {
+      const res = await fetch(`${API}/subfolder/rename`, {
+        method: 'POST', headers: await adminHeaders(),
+        body: JSON.stringify({ university: uni, career, subject, path: f.path, newName }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
+      setFilesVersion(v => v + 1)   // recargar la lista desde el servidor
+    } catch (err) { alert('No se pudo renombrar: ' + err.message) }
+  }
+
+  const deleteSubfolder = async f => {
+    if (!window.confirm(`¿Eliminar la subcarpeta "${f.name}"?\nSolo se puede si está vacía.`)) return
+    try {
+      const res = await fetch(`${API}/subfolder`, {
+        method: 'DELETE', headers: await adminHeaders(),
+        body: JSON.stringify({ university: uni, career, subject, path: f.path }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
+      setFiles(prev => prev.filter(x => !(x.type === 'subfolder' && x.path === f.path)))
+    } catch (err) { alert('No se pudo eliminar: ' + err.message) }
+  }
+
+  // ── Renombrar archivo (solo quien lo subió, o admin) ──────────────────
+  const renameFile = async f => {
+    const base = f.name.replace(/\.\w+$/, '')
+    const ext  = f.name.match(/\.\w+$/)?.[0] ?? ''
+    const input = window.prompt(`Nuevo nombre para el archivo (la extensión ${ext} se conserva):`, base)
+    if (input == null) return
+    const newName = input.trim()
+    if (!newName || newName === base) return
+    try {
+      const res = await fetch(`${API}/file/rename`, {
+        method: 'POST', headers: await adminHeaders(),
+        body: JSON.stringify({ key: f.key, newName }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
+      const data = await res.json()
+      // Actualizar la lista, los puntajes y las marcas locales con la key nueva
+      setFiles(prev => prev.map(x => x.key === f.key ? { ...x, key: data.key, name: data.name } : x))
+      setRatings(prev => {
+        if (!prev[f.key]) return prev
+        const n = { ...prev, [data.key]: prev[f.key] }; delete n[f.key]; return n
+      })
+      if (isOwned(f.key)) { unmarkOwned(f.key); markOwned(data.key) }
+      migrateVote(f.key, data.key)
+    } catch (err) { alert('No se pudo renombrar: ' + err.message) }
+  }
+
+  // ── Mover archivo a otra subcarpeta de la misma materia ───────────────
+  const openMove = async f => {
+    setMoveFile(f); setMoveDests(null)
+    try {
+      const res = await fetch(`${API}/subfolders?university=${encodeURIComponent(uni)}&career=${encodeURIComponent(career)}&subject=${encodeURIComponent(subject)}`)
+      const d = res.ok ? await res.json() : []
+      setMoveDests(Array.isArray(d) ? d : [])
+    } catch { setMoveDests([]) }
+  }
+
+  const doMove = async dest => {
+    const f = moveFile
+    if (!f) return
+    try {
+      const res = await fetch(`${API}/file/move`, {
+        method: 'POST', headers: await adminHeaders(),
+        body: JSON.stringify({ key: f.key, path: dest }),
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
+      const data = await res.json()
+      // El archivo se fue de la vista actual
+      setFiles(prev => prev.filter(x => x.key !== f.key))
+      setRatings(prev => {
+        if (!prev[f.key]) return prev
+        const n = { ...prev, [data.key]: prev[f.key] }; delete n[f.key]; return n
+      })
+      if (isOwned(f.key)) { unmarkOwned(f.key); markOwned(data.key) }
+      migrateVote(f.key, data.key)
+      setMoveFile(null)
+    } catch (err) { alert('No se pudo mover: ' + err.message) }
+  }
+
   // ── Rate ──────────────────────────────────────────────────────────────
   const rate = async (key, stars) => {
     if (hasVoted(key) || ratingKey) return
@@ -647,7 +857,7 @@ export default function ApuntesPage({ onBack }) {
   const LEVEL_TITLE = {
     university: `Carreras en ${uni}`,
     career:     `Materias en ${career}`,
-    subject:    subject,
+    subject:    subPath.length ? subPath[subPath.length - 1] : subject,
   }
 
   const LEVEL_NEW_LABEL = {
@@ -728,10 +938,18 @@ export default function ApuntesPage({ onBack }) {
         </>}
         {subject && <>
           <ChevronRight size={14} className="ap-crumb-sep" aria-hidden="true" />
-          {drivePath.length > 0
-            ? <button className="ap-crumb-seg" onClick={() => setDrivePath([])}>{subject}</button>
+          {drivePath.length > 0 || subPath.length > 0
+            ? <button className="ap-crumb-seg" onClick={() => { setDrivePath([]); goSubLevel(0) }}>{subject}</button>
             : <span className="ap-crumb-seg ap-crumb-here" aria-current="page">{subject}</span>}
         </>}
+        {subPath.map((name, i) => (
+          <span key={`${name}-${i}`} style={{ display: 'contents' }}>
+            <ChevronRight size={14} className="ap-crumb-sep" aria-hidden="true" />
+            {i === subPath.length - 1
+              ? <span className="ap-crumb-seg ap-crumb-here" aria-current="page">{name}</span>
+              : <button className="ap-crumb-seg" onClick={() => goSubLevel(i + 1)}>{name}</button>}
+          </span>
+        ))}
       </nav>
 
       </div>{/* /ap-header */}
@@ -913,8 +1131,33 @@ export default function ApuntesPage({ onBack }) {
               </div>
             )}
 
-            {/* ── Admin: agregar carpeta de Drive ── */}
-            {isAdmin && (
+            {/* ── Nueva subcarpeta — cualquier persona logueada (mejora el orden) ── */}
+            {isSignedIn && subPath.length < 2 && (
+              <div className="ap-subfolder-bar">
+                {creatingSub ? (
+                  <div className="ap-subfolder-form">
+                    <FolderPlus size={18} className="ap-nf-icon"/>
+                    <input
+                      className="ap-nf-input"
+                      placeholder="Nombre de la subcarpeta (ej: Parciales, Resúmenes, Cátedra López…)"
+                      value={subName}
+                      autoFocus
+                      onChange={e => setSubName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') createSubfolder(); if (e.key === 'Escape') { setCreatingSub(false); setSubName('') } }}
+                    />
+                    <button className="ap-nf-confirm" onClick={createSubfolder} disabled={!subName.trim()}><Check size={14}/> Crear</button>
+                    <button className="ap-nf-cancel" aria-label="Cancelar" onClick={() => { setCreatingSub(false); setSubName('') }}><X size={14}/></button>
+                  </div>
+                ) : (
+                  <button className="ap-subfolder-new" onClick={() => setCreatingSub(true)}>
+                    <FolderPlus size={16}/> Nueva subcarpeta
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* ── Admin: agregar carpeta de Drive (los links viven a nivel materia) ── */}
+            {isAdmin && subPath.length === 0 && (
               <div className="ap-admin-box">
                 {driveForm ? (
                   <div className="ap-drive-form">
@@ -1011,6 +1254,35 @@ export default function ApuntesPage({ onBack }) {
                 )}
                 <div className="ap-files-list">
                   {visFiles.map((f,i) => {
+                    // ── Subcarpeta de la materia (navegable) ──
+                    if (f.type === 'subfolder') {
+                      return (
+                        <motion.div key={`sub-${f.path}`} className="ap-file ap-file--subfolder ap-file--clickable"
+                          initial={{opacity:0,x:-6}} animate={{opacity:1,x:0}} transition={{delay:i*0.04}}
+                          onClick={() => enterSubfolder(f)}
+                          role="button" tabIndex={0} onKeyDown={activateOnKey(() => enterSubfolder(f))}
+                          title="Abrir subcarpeta">
+                          <div className="ap-file-ext ap-file-ext--subfolder">
+                            <Folder size={20}/>
+                          </div>
+                          <div className="ap-file-info">
+                            <MarqueeText className="ap-file-name" text={f.name} />
+                            <div className="ap-file-meta">
+                              <span className="ap-subfolder-badge">Subcarpeta</span>
+                            </div>
+                          </div>
+                          <div className="ap-file-btns ap-file-btns--row" onClick={e => e.stopPropagation()}>
+                            {(f.owned || isAdmin) && (
+                              <FileActions actions={[
+                                { key: 'ren', icon: <Pencil size={14}/>, title: 'Renombrar subcarpeta', onClick: () => renameSubfolder(f) },
+                                { key: 'del', icon: <Trash2 size={14}/>, title: 'Eliminar subcarpeta vacía', className: 'ap-fan-item--del', onClick: () => deleteSubfolder(f) },
+                              ]}/>
+                            )}
+                            <ChevronRight size={20} className="ap-drive-chevron"/>
+                          </div>
+                        </motion.div>
+                      )
+                    }
                     // ── Carpeta de Drive (link externo) ──
                     if (f.type === 'drive') {
                       return (
@@ -1030,14 +1302,12 @@ export default function ApuntesPage({ onBack }) {
                             </div>
                           </div>
                           <div className="ap-file-btns" onClick={e => e.stopPropagation()}>
-                            <button className="ap-dl ap-dl--drive" onClick={() => window.open(f.url, '_blank', 'noopener')} title="Abrir en Drive">
-                              <ExternalLink size={16}/>
-                            </button>
-                            {isAdmin && (
-                              <button className="ap-del" onClick={() => deleteDriveLink(f.id)} title="Eliminar carpeta (admin)">
-                                <Trash2 size={15}/>
-                              </button>
-                            )}
+                            <FileActions actions={[
+                              { key: 'open', icon: <ExternalLink size={15}/>, title: 'Abrir en Drive', className: 'ap-fan-item--drive',
+                                onClick: () => window.open(f.url, '_blank', 'noopener') },
+                              ...(isAdmin ? [{ key: 'del', icon: <Trash2 size={14}/>, title: 'Eliminar carpeta (admin)', className: 'ap-fan-item--del',
+                                onClick: () => deleteDriveLink(f.id) }] : []),
+                            ]}/>
                           </div>
                         </motion.div>
                       )
@@ -1084,9 +1354,10 @@ export default function ApuntesPage({ onBack }) {
                             </div>
                           </div>
                           <div className="ap-file-btns" onClick={e => e.stopPropagation()}>
-                            <button className="ap-dl ap-dl--drive" onClick={() => window.open(f.viewUrl, '_blank', 'noopener')} title="Abrir en Drive">
-                              <ExternalLink size={16}/>
-                            </button>
+                            <FileActions actions={[
+                              { key: 'open', icon: <ExternalLink size={15}/>, title: 'Abrir en Drive', className: 'ap-fan-item--drive',
+                                onClick: () => window.open(f.viewUrl, '_blank', 'noopener') },
+                            ]}/>
                           </div>
                         </motion.div>
                       )
@@ -1112,19 +1383,24 @@ export default function ApuntesPage({ onBack }) {
                           </div>
                         </div>
                         <div className="ap-file-btns" onClick={e => e.stopPropagation()}>
-                          <button className="ap-dl" onClick={() => window.open(`${API}/download?key=${encodeURIComponent(f.key)}`, '_blank')} title="Descargar">
-                            <Download size={16}/>
-                          </button>
-                          {/* Borrar: el dueño (según el servidor), o el admin (cualquier archivo) */}
-                          {isAdmin ? (
-                            <button className="ap-del" onClick={() => adminDeleteFile(f.key)} title="Eliminar (admin)">
-                              <Trash2 size={15}/>
-                            </button>
-                          ) : (f.owned || isOwned(f.key)) && (
-                            <button className="ap-del" onClick={() => deleteFile(f.key)} title="Eliminar mi apunte">
-                              <Trash2 size={15}/>
-                            </button>
-                          )}
+                          <FileActions actions={[
+                            { key: 'dl', icon: <Download size={15}/>, title: 'Descargar', className: 'ap-fan-item--dl',
+                              onClick: () => window.open(`${API}/download?key=${encodeURIComponent(f.key)}`, '_blank') },
+                            // Mover a una subcarpeta: cualquier persona logueada (orden colaborativo)
+                            ...(isSignedIn ? [{ key: 'move', icon: <FolderInput size={15}/>, title: 'Mover a otra carpeta',
+                              onClick: () => openMove(f) }] : []),
+                            // Renombrar: el dueño (según el servidor), o el admin
+                            ...((isAdmin || f.owned || isOwned(f.key)) ? [{ key: 'ren', icon: <Pencil size={14}/>, title: 'Renombrar archivo',
+                              onClick: () => renameFile(f) }] : []),
+                            // Borrar: el dueño (según el servidor), o el admin (cualquier archivo)
+                            ...(isAdmin
+                              ? [{ key: 'del', icon: <Trash2 size={14}/>, title: 'Eliminar (admin)', className: 'ap-fan-item--del',
+                                  onClick: () => adminDeleteFile(f.key) }]
+                              : (f.owned || isOwned(f.key))
+                                ? [{ key: 'del', icon: <Trash2 size={14}/>, title: 'Eliminar mi apunte', className: 'ap-fan-item--del',
+                                    onClick: () => deleteFile(f.key) }]
+                                : []),
+                          ]}/>
                         </div>
                       </motion.div>
                     )
@@ -1137,9 +1413,51 @@ export default function ApuntesPage({ onBack }) {
       </div>
     </div>
 
+    {/* ── Modal: mover archivo a otra subcarpeta ── */}
+    <AnimatePresence>
+      {moveFile && (() => {
+        const currentDir = moveFile.key.split('/').slice(3, -1).join('/')
+        const dests = (moveDests ?? []).filter(d => d !== currentDir)
+        return (
+          <motion.div className="ap-move-overlay" onClick={e => { if (e.target === e.currentTarget) setMoveFile(null) }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}>
+            <motion.div className="ap-move-modal" role="dialog" aria-label="Mover archivo"
+              initial={{ opacity: 0, scale: 0.96, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 10 }}>
+              <div className="ap-move-head">
+                <FolderInput size={16}/>
+                <span className="ap-move-title">Mover "{moveFile.name}"</span>
+                <button className="ap-move-x" aria-label="Cerrar" onClick={() => setMoveFile(null)}><X size={15}/></button>
+              </div>
+              <p className="ap-move-hint">Elegí a qué carpeta de <b>{subject}</b> moverlo:</p>
+              <div className="ap-move-list">
+                {moveDests === null && <div className="ap-move-loading"><Loader size={15} className="ap-spin"/> Cargando carpetas…</div>}
+                {moveDests !== null && (
+                  <>
+                    {currentDir !== '' && (
+                      <button className="ap-move-dest" onClick={() => doMove('')}>
+                        <FolderOpen size={15}/> Raíz de la materia
+                      </button>
+                    )}
+                    {dests.map(d => (
+                      <button key={d} className="ap-move-dest" onClick={() => doMove(d)}>
+                        <Folder size={15}/> {d.split('/').join(' / ')}
+                      </button>
+                    ))}
+                    {dests.length === 0 && currentDir === '' && (
+                      <p className="ap-move-empty">No hay subcarpetas todavía. Creá una con "Nueva subcarpeta" y volvé a intentar.</p>
+                    )}
+                  </>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )
+      })()}
+    </AnimatePresence>
+
     {/* ── Preview modal ── */}
     <AnimatePresence>
-      {preview && <PreviewModal file={preview} onClose={() => setPreview(null)} />}
+      {preview && <PreviewModal file={preview} onClose={closePreview} />}
     </AnimatePresence>
     </>
   )
