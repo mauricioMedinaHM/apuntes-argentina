@@ -543,25 +543,7 @@ function renameMetaKeys(obj, oldPath, newPath, { prefixMatch = true } = {}) {
 // ══════════════════════════════════════════════════════════════════════════
 
 /** Health check */
-app.get('/api/health', async (req, res) => {
-  // Diagnóstico temporal: ?deep=1 prueba el listado de R2 en este runtime
-  // (solo conteos y códigos de error — nunca claves ni contenido)
-  if (req.query.deep === '1') {
-    const out = { status: 'ok', bucket: BUCKET, node: process.version }
-    try {
-      const all = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, MaxKeys: 1000 }))
-      out.listAll = { count: (all.Contents ?? []).length, truncated: !!all.IsTruncated }
-    } catch (err) { out.listAll = { error: err.name, code: err.$metadata?.httpStatusCode } }
-    try {
-      const pre = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'UDA/', MaxKeys: 100 }))
-      out.listPrefix = { count: (pre.Contents ?? []).length }
-    } catch (err) { out.listPrefix = { error: err.name, code: err.$metadata?.httpStatusCode } }
-    try {
-      const del = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: 'UDA/', Delimiter: '/', MaxKeys: 100 }))
-      out.listDelim = { count: (del.Contents ?? []).length, prefixes: (del.CommonPrefixes ?? []).length }
-    } catch (err) { out.listDelim = { error: err.name, code: err.$metadata?.httpStatusCode } }
-    return res.json(out)
-  }
+app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', bucket: BUCKET })
 })
 
@@ -577,7 +559,10 @@ app.get('/api/files', treeLimiter, async (req, res) => {
   const uni     = sanitizePath(req.query.university)
   const career  = sanitizePath(req.query.career)
   const subject = sanitizePath(req.query.subject)
-  const subParts = sanitizeSubPath(req.query.path)   // subcarpeta actual (puede ser '')
+  // Subcarpeta actual (puede ser ''). OJO: el query param se llama "sub" y NO "path"
+  // porque el rewrite de vercel.json (/api/:path* → /api/index) inyecta el segmento
+  // matcheado como query param "path" — en producción llegaba path=files y rompía el listado.
+  const subParts = sanitizeSubPath(req.query.sub)
   log('GET', '/api/files', `${uni}/${career}/${subject}${subParts.length ? '/' + subParts.join('/') : ''}`)
 
   if (!uni || !career || !subject)

@@ -342,7 +342,7 @@ export default function ApuntesPage({ onBack }) {
     const inDrive = drivePath.length > 0
     const url = inDrive
       ? `${API}/drive-folder?id=${encodeURIComponent(drivePath[drivePath.length - 1].driveId)}&folderId=${encodeURIComponent(drivePath[drivePath.length - 1].folderId)}&sig=${encodeURIComponent(drivePath[drivePath.length - 1].sig ?? '')}`
-      : `${API}/files?university=${encodeURIComponent(uni)}&career=${encodeURIComponent(career)}&subject=${encodeURIComponent(subject)}&path=${encodeURIComponent(subPath.join('/'))}`
+      : `${API}/files?university=${encodeURIComponent(uni)}&career=${encodeURIComponent(career)}&subject=${encodeURIComponent(subject)}&sub=${encodeURIComponent(subPath.join('/'))}`
     ;(async () => {
       try {
         // Mandar el JWT para que el servidor marque qué archivos son míos (owned)
