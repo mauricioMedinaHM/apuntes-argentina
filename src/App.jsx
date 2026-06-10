@@ -188,6 +188,23 @@ export default function App() {
   }, [view, showSplash])
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768
 
+  // ── Historial del navegador ────────────────────────────────────────────
+  // Cada nivel del buscador es una entrada real del historial (la maneja
+  // ApuntesPage). Acá solo decidimos qué vista mostrar cuando el usuario usa
+  // atrás/adelante: entradas con {aa} son del buscador, el resto es la landing.
+  useEffect(() => {
+    const onPop = e => setView(e.state?.aa ? 'apuntes' : 'landing')
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
+  // Volver a la landing desde el buscador (botón "Inicio"): entrada propia en el
+  // historial, así "atrás" desde la landing te devuelve a donde estabas del buscador.
+  const goHome = () => {
+    if (window.history.state?.aa) window.history.pushState({ aaHome: true }, '')
+    setView('landing')
+  }
+
   if (view === 'apuntes') {
     return (
       <Suspense fallback={
@@ -195,7 +212,7 @@ export default function App() {
           Cargando…
         </div>
       }>
-        <ApuntesPage onBack={() => setView('landing')} />
+        <ApuntesPage onBack={goHome} />
       </Suspense>
     )
   }

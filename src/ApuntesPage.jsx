@@ -63,6 +63,10 @@ const DriveIcon = ({ size = 16 }) => (
   </svg>
 )
 
+// Cache del bootstrap (árbol/ratings/uploads) a nivel módulo: al volver a entrar
+// al buscador con atrás/adelante no se muestra el loader — se refresca en silencio.
+let bootCache = null
+
 // ── Texto que se desliza suavemente si es muy largo (nombres de materias/apuntes) ──
 function MarqueeText({ text, className = '' }) {
   const wrap = useRef(null)
@@ -273,15 +277,18 @@ function UCard({ u, live, onSelect, fav }) {
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════════════════
 export default function ApuntesPage({ onBack }) {
-  const [uni,      setUni]      = useState(null)
-  const [career,   setCareer]   = useState(null)
-  const [subject,  setSubject]  = useState(null)
-  const [tree,     setTree]     = useState({ universities:[], careers:{}, subjects:{} })
+  // Si llegamos vía atrás/adelante del navegador (o un reload), arrancamos en el
+  // estado guardado en esa entrada del historial en vez de empezar de cero.
+  const savedNav = (typeof window !== 'undefined' && window.history.state?.aa) || null
+  const [uni,      setUni]      = useState(savedNav?.uni ?? null)
+  const [career,   setCareer]   = useState(savedNav?.career ?? null)
+  const [subject,  setSubject]  = useState(savedNav?.subject ?? null)
+  const [tree,     setTree]     = useState(bootCache?.tree ?? { universities:[], careers:{}, subjects:{} })
   const [files,    setFiles]    = useState([])
-  const [ratings,  setRatings]  = useState({})
-  const [uploads,  setUploads]  = useState({})  // key → { uploaderId }
+  const [ratings,  setRatings]  = useState(bootCache?.ratings ?? {})
+  const [uploads,  setUploads]  = useState(bootCache?.uploads ?? {})  // key → { uploaderId }
   const [favs,     setFavs]     = useState(loadFavs)
-  const [treeLoad, setTreeLoad] = useState(true)
+  const [treeLoad, setTreeLoad] = useState(!bootCache)
   const [filesLoad,setFilesLoad]= useState(false)
   const [creating, setCreating] = useState(null)
   const [newName,  setNewName]  = useState('')
@@ -291,12 +298,12 @@ export default function ApuntesPage({ onBack }) {
   const [search,   setSearch]   = useState('')
   const [points,   setPoints]   = useState(getPoints)
   const [pointsAnim, setPointsAnim] = useState(null)
-  const [preview,  setPreview]  = useState(null)   // file object to preview
+  const [preview,  setPreview]  = useState(savedNav?.preview ?? null)   // file object to preview
   const [driveForm, setDriveForm] = useState(null)  // { name, url } | null cuando se está agregando
   const [careerImport, setCareerImport] = useState(null)  // { url } | null — importar carrera completa de Drive
   const [importing, setImporting] = useState(false)
-  const [drivePath, setDrivePath] = useState([])    // navegación dentro de carpetas de Drive: [{driveId, folderId, name}]
-  const [subPath,   setSubPath]   = useState([])    // navegación dentro de subcarpetas de la materia: ['Parciales', ...]
+  const [drivePath, setDrivePath] = useState(savedNav?.drivePath ?? [])  // navegación dentro de carpetas de Drive: [{driveId, folderId, name}]
+  const [subPath,   setSubPath]   = useState(savedNav?.subPath ?? [])    // navegación dentro de subcarpetas de la materia: ['Parciales', ...]
   const [creatingSub, setCreatingSub] = useState(false)  // creando una subcarpeta
   const [subName,   setSubName]   = useState('')
   const [moveFile,  setMoveFile]  = useState(null)  // archivo que se está moviendo (abre el selector de destino)
@@ -320,9 +327,11 @@ export default function ApuntesPage({ onBack }) {
       fetch(`${API}/uploads`).then(okJson({})).catch(() => ({})),
     ]).then(([t, r, u]) => {
       // Garantiza la forma esperada aunque el backend devuelva algo inesperado
-      setTree(t && Array.isArray(t.universities) ? t : { universities:[], careers:{}, subjects:{} })
-      setRatings(r && typeof r === 'object' ? r : {})
-      setUploads(u && typeof u === 'object' ? u : {})
+      const tree    = t && Array.isArray(t.universities) ? t : { universities:[], careers:{}, subjects:{} }
+      const ratings = r && typeof r === 'object' ? r : {}
+      const uploads = u && typeof u === 'object' ? u : {}
+      setTree(tree); setRatings(ratings); setUploads(uploads)
+      bootCache = { tree, ratings, uploads }
     }).finally(() => setTreeLoad(false))
   }, [])
 
@@ -383,44 +392,59 @@ export default function ApuntesPage({ onBack }) {
     else                 { setUni(null) }
   }
 
-  // ── Botón "atrás" del navegador / Android ────────────────────────────────
-  // En vez de abandonar el sitio, sube un nivel: cierra el preview, sale de la
-  // carpeta de Drive y luego materia → carrera → universidad → landing.
-  // Devuelve true si consumió un nivel dentro del buscador (para re-armar la trampa).
-  const navBackRef = useRef(null)
-  navBackRef.current = () => {
-    if (preview)          { setPreview(null);                    return true }
-    if (moveFile)         { setMoveFile(null);                   return true }
-    if (drivePath.length) { setDrivePath(p => p.slice(0, -1));   return true }
-    if (subPath.length)   { goSubLevel(subPath.length - 1);      return true }
-    if (subject)          { setSubject(null); setCreating(null); resetSubLevel(); return true }
-    if (career)           { setCareer(null);  setCreating(null); return true }
-    if (uni)              { setUni(null);                         return true }
-    onBack()  // ya en el selector de universidades → volver a la landing
-    return false
-  }
+  // ── Historial real del navegador ──────────────────────────────────────────
+  // Cada nivel visitado (universidad, carrera, materia, subcarpeta, carpeta de
+  // Drive, preview) es una entrada del historial. Atrás vuelve a la vista
+  // anterior y adelante rehace el camino — sin salir nunca del sitio.
+  const restoringRef  = useRef(false)       // el próximo cambio de estado viene de atrás/adelante: no pushear
+  const lastNavKeyRef = useRef(undefined)   // undefined = primer render todavía no procesado
 
+  const navKey = s => JSON.stringify([
+    s.uni ?? null, s.career ?? null, s.subject ?? null,
+    s.subPath ?? [], (s.drivePath ?? []).map(d => d.driveId),
+    s.preview?.key ?? s.preview?.id ?? null,
+  ])
+
+  // Atrás/adelante: restaurar el estado guardado en la entrada del historial
   useEffect(() => {
-    const onPop = () => {
-      // El navegador ya consumió nuestra entrada "fantasma": subimos un nivel y,
-      // si seguimos dentro del buscador, re-armamos la trampa para el próximo "atrás".
-      if (navBackRef.current()) window.history.pushState({ aa: true }, '')
+    const onPop = e => {
+      const s = e.state?.aa
+      if (!s) return   // entrada de la landing — App.jsx se encarga de cambiar la vista
+      restoringRef.current = true
+      setUni(s.uni ?? null); setCareer(s.career ?? null); setSubject(s.subject ?? null)
+      setSubPath(s.subPath ?? []); setDrivePath(s.drivePath ?? []); setPreview(s.preview ?? null)
+      // Estado transitorio: formularios y modales no viajan en el tiempo
+      setCreating(null); setNewName(''); setCreatingSub(false); setSubName('')
+      setMoveFile(null); setSearch('')
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
-  // Arma UNA entrada "fantasma" la primera vez que se entra a un nivel navegable.
-  const trapArmed = useRef(false)
+  // Cada navegación nueva crea una entrada en el historial
   useEffect(() => {
-    const inside = !!(uni || preview)
-    if (inside && !trapArmed.current) {
-      window.history.pushState({ aa: true }, '')
-      trapArmed.current = true
-    } else if (!inside) {
-      trapArmed.current = false
+    const snap = { uni, career, subject, subPath, drivePath, preview }
+    const key = navKey(snap)
+
+    // Primer render: si esta entrada ya es nuestra (atrás/adelante/reload) no se
+    // pushea nada; si venimos de la landing, se crea la entrada raíz del buscador.
+    if (lastNavKeyRef.current === undefined) {
+      if (window.history.state?.aa) lastNavKeyRef.current = navKey(window.history.state.aa)
+      else { window.history.pushState({ aa: snap }, ''); lastNavKeyRef.current = key }
+      return
     }
-  }, [uni, preview])
+    if (restoringRef.current) { restoringRef.current = false; lastNavKeyRef.current = key; return }
+    if (key === lastNavKeyRef.current) return
+    window.history.pushState({ aa: snap }, '')
+    lastNavKeyRef.current = key
+  }, [uni, career, subject, subPath, drivePath, preview])
+
+  // Cerrar el preview: si su entrada es la actual del historial, volvemos atrás
+  // (así "adelante" puede reabrirlo y el stack no acumula duplicados)
+  const closePreview = () => {
+    if (window.history.state?.aa?.preview) window.history.back()
+    else setPreview(null)
+  }
 
   // ── Create folder ─────────────────────────────────────────────────────
   const confirmCreate = () => {
@@ -1433,7 +1457,7 @@ export default function ApuntesPage({ onBack }) {
 
     {/* ── Preview modal ── */}
     <AnimatePresence>
-      {preview && <PreviewModal file={preview} onClose={() => setPreview(null)} />}
+      {preview && <PreviewModal file={preview} onClose={closePreview} />}
     </AnimatePresence>
     </>
   )
